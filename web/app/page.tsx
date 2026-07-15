@@ -192,6 +192,55 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
 const today = new Date().toISOString().slice(0, 10);
 const nextMonth = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
 
+const labels: Record<string, string> = {
+  active: "Ativo",
+  planning: "Planejamento",
+  at_risk: "Em atencao",
+  completed: "Concluido",
+  cancelled: "Cancelado",
+  pending: "Pendente",
+  late: "Atrasado",
+  done: "Concluido",
+  open: "Aberto",
+  mitigating: "Em mitigacao",
+  closed: "Fechado",
+  medium: "Media",
+  high: "Alta",
+  low: "Baixa",
+  critical: "Critica",
+  todo: "A fazer",
+  in_progress: "Em andamento",
+  blocked: "Bloqueado",
+  draft: "Rascunho",
+  submitted: "Enviado",
+  approved: "Aprovado",
+  rejected: "Rejeitado",
+  corrected: "Corrigido",
+  collecting: "Em coleta",
+  in_review: "Em revisao",
+  presented: "Apresentado",
+  archived: "Arquivado",
+  maxicon: "Maxicon",
+  client: "Cliente",
+  sap: "SAP",
+  third_party: "Terceiro",
+  billable: "Rentavel",
+  non_billable: "Nao rentavel",
+  internal: "Interna",
+  support: "Suporte",
+  rework: "Retrabalho",
+  meeting: "Reuniao",
+  training: "Treinamento",
+  travel: "Deslocamento",
+  implementation: "Implantacao",
+  development: "Desenvolvimento",
+};
+
+function labelFor(value?: string | null) {
+  if (!value) return "Nao informado";
+  return labels[value] ?? value;
+}
+
 const emptyDashboard: Dashboard = {
   health_label: "Sem dados",
   health_percent: 0,
@@ -879,7 +928,7 @@ export default function Home() {
                 <article className="panel milestone-card" key={milestone.id}>
                   <span>{milestone.due_date}</span>
                   <h3>{milestone.title}</h3>
-                  <p>Status: {milestone.status}</p>
+                  <p>Status: {labelFor(milestone.status)}</p>
                 </article>
               ))}
             </div>
@@ -900,7 +949,7 @@ export default function Home() {
             <div className="risk-grid">
               {dashboard.risks.map((risk) => (
                 <article className={`panel risk-card ${risk.severity}`} key={risk.id}>
-                  <span>{risk.severity}</span>
+                  <span>{labelFor(risk.severity)}</span>
                   <h3>{risk.title}</h3>
                   <p>{risk.description || "Sem descricao complementar."}</p>
                 </article>
@@ -949,11 +998,11 @@ export default function Home() {
             <div className="record-grid">
               {tasks.map((task) => (
                 <article className="panel record-card" key={task.id}>
-                  <span>{task.priority} · {task.responsible_org}</span>
+                  <span>{labelFor(task.priority)} · {labelFor(task.responsible_org)}</span>
                   <h3>{task.title}</h3>
                   <p>{task.owner_name} · {task.start_date} a {task.due_date}</p>
                   <div className="progress-track"><span style={{ width: `${task.progress_percent}%` }} /></div>
-                  <small>{task.progress_percent}% · {task.status}</small>
+                  <small>{task.progress_percent}% · {labelFor(task.status)}</small>
                 </article>
               ))}
               {!tasks.length && <EmptyPanel text="Nenhuma tarefa cadastrada para o projeto selecionado." />}
@@ -975,7 +1024,7 @@ export default function Home() {
             <div className="record-grid">
               {deliverables.map((deliverable) => (
                 <article className="panel record-card" key={deliverable.id}>
-                  <span>{deliverable.status}</span>
+                  <span>{labelFor(deliverable.status)}</span>
                   <h3>{deliverable.title}</h3>
                   <p>{deliverable.acceptance_criteria}</p>
                   <small>{deliverable.owner_name} · prazo {deliverable.due_date}</small>
@@ -1000,7 +1049,7 @@ export default function Home() {
             <div className="record-grid">
               {impediments.map((impediment) => (
                 <article className="panel record-card alert-card" key={impediment.id}>
-                  <span>{impediment.responsible_org} · {impediment.status}</span>
+                  <span>{labelFor(impediment.responsible_org)} · {labelFor(impediment.status)}</span>
                   <h3>{impediment.affected_activity}</h3>
                   <p>{impediment.description}</p>
                   <small>{impediment.owner_name} · prazo {impediment.due_date}</small>
@@ -1039,8 +1088,8 @@ export default function Home() {
                       <td>{entry.entry_date}</td>
                       <td>{entry.user_name}</td>
                       <td>{entry.hours}</td>
-                      <td>{entry.entry_type}</td>
-                      <td>{entry.approval_status}</td>
+                      <td>{labelFor(entry.entry_type)}</td>
+                      <td>{labelFor(entry.approval_status)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1067,7 +1116,7 @@ export default function Home() {
                   <div className="panel-header">
                     <h3>{report.period_start} a {report.period_end}</h3>
                     <span className={report.status === "approved" ? "status-pill green" : "status-pill yellow"}>
-                      {report.status}
+                      {labelFor(report.status)}
                     </span>
                   </div>
                   <pre>{report.latest_content ?? "Sem conteudo gerado."}</pre>
@@ -1221,7 +1270,7 @@ function ActionPanel({ actions, openActions }: { actions: ActionItem[]; openActi
           <label key={action.id}>
             <input checked={action.status === "done"} readOnly type="checkbox" />
             <span>{action.title}</span>
-            <b className={`priority ${action.priority}`}>{action.priority}</b>
+            <b className={`priority ${action.priority}`}>{labelFor(action.priority)}</b>
             <em>{action.due_date.slice(5)}</em>
           </label>
         ))}
@@ -1261,7 +1310,7 @@ function ProjectTable({
               <td>{project.target_end_date}</td>
               <td>
                 <span className={project.status === "at_risk" ? "status-pill yellow" : "status-pill green"}>
-                  {project.status}
+                  {labelFor(project.status)}
                 </span>
               </td>
             </tr>
