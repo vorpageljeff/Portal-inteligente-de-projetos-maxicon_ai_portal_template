@@ -14,7 +14,14 @@ class ProjectCreate(BaseModel):
     start_date: date
     target_end_date: date
     contracted_hours: float = Field(default=0, ge=0)
+    progress_percent: float = Field(default=0, ge=0, le=100)
+    planned_hours: float = Field(default=0, ge=0)
+    actual_hours: float = Field(default=0, ge=0)
+    billable_hours: float = Field(default=0, ge=0)
+    non_billable_hours: float = Field(default=0, ge=0)
     status: ProjectStatus = ProjectStatus.PLANNING
+
+
 class ProjectRead(ProjectCreate):
     id: uuid.UUID
     created_at: datetime

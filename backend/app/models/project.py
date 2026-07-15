@@ -27,6 +27,11 @@ class Project(Base):
     start_date: Mapped[date]
     target_end_date: Mapped[date]
     contracted_hours: Mapped[float] = mapped_column(Float, default=0)
+    progress_percent: Mapped[float] = mapped_column(Float, default=0)
+    planned_hours: Mapped[float] = mapped_column(Float, default=0)
+    actual_hours: Mapped[float] = mapped_column(Float, default=0)
+    billable_hours: Mapped[float] = mapped_column(Float, default=0)
+    non_billable_hours: Mapped[float] = mapped_column(Float, default=0)
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus),
         default=ProjectStatus.PLANNING,

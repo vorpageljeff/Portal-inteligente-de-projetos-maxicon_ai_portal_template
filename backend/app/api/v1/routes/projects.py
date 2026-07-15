@@ -35,3 +35,17 @@ def get_project(project_id: uuid.UUID, db: DbSession) -> Project:
     if not project:
         raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
     return project
+
+
+@router.patch("/{project_id}", response_model=ProjectRead)
+def update_project(project_id: uuid.UUID, payload: ProjectCreate, db: DbSession) -> Project:
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
+    if payload.target_end_date < payload.start_date:
+        raise HTTPException(status_code=422, detail="A data final nao pode ser anterior a inicial.")
+    for field, value in payload.model_dump().items():
+        setattr(project, field, value)
+    db.commit()
+    db.refresh(project)
+    return project

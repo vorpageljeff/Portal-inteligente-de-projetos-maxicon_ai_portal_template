@@ -1,24 +1,271 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Section = "overview" | "projects" | "milestones" | "risks" | "actions";
+type ModalMode = "project" | "milestone" | "risk" | "action" | null;
+
+type Project = {
+  id: string;
+  name: string;
+  client_name: string;
+  description?: string | null;
+  manager_name?: string | null;
+  start_date: string;
+  target_end_date: string;
+  contracted_hours: number;
+  progress_percent: number;
+  planned_hours: number;
+  actual_hours: number;
+  billable_hours: number;
+  non_billable_hours: number;
+  status: string;
+  created_at: string;
+};
+
+type Milestone = {
+  id: string;
+  project_id: string;
+  title: string;
+  due_date: string;
+  status: "pending" | "done" | "late";
+};
+
+type Risk = {
+  id: string;
+  project_id: string;
+  title: string;
+  description?: string | null;
+  severity: "medium" | "high" | "critical";
+  status: "open" | "mitigating" | "closed";
+};
+
+type ActionItem = {
+  id: string;
+  project_id: string;
+  title: string;
+  priority: "low" | "medium" | "high";
+  due_date: string;
+  status: "todo" | "in_progress" | "done";
+};
+
+type Dashboard = {
+  health_label: string;
+  health_percent: number;
+  metrics: Array<{ label: string; value: string; delta: string; tone: string }>;
+  portfolio_trend: Array<{ label: string; progress_percent: number }>;
+  initiatives: Array<{
+    project_id: string;
+    name: string;
+    client_name: string;
+    progress_percent: number;
+    variation: number;
+    status_label: string;
+    milestones_done: number;
+    milestones_total: number;
+    critical_risks: number;
+  }>;
+  executive_summary: string[];
+  milestones: Milestone[];
+  risks: Risk[];
+  actions: ActionItem[];
+};
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const navItems: Array<{ id: Section; label: string; icon: string }> = [
-  { id: "overview", label: "Visão geral", icon: "⌂" },
+  { id: "overview", label: "Visao geral", icon: "⌂" },
   { id: "projects", label: "Projetos", icon: "▣" },
   { id: "milestones", label: "Marcos", icon: "⚑" },
-  { id: "risks", label: "Riscos", icon: "⚠" },
-  { id: "actions", label: "Plano de ação", icon: "☑" },
+  { id: "risks", label: "Riscos", icon: "!" },
+  { id: "actions", label: "Plano de acao", icon: "☑" },
 ];
+
+const today = new Date().toISOString().slice(0, 10);
+const nextMonth = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
+
+const emptyDashboard: Dashboard = {
+  health_label: "Sem dados",
+  health_percent: 0,
+  metrics: [
+    { label: "Projetos ativos", value: "0", delta: "cadastre o primeiro projeto", tone: "positive" },
+    { label: "Progresso medio", value: "0%", delta: "sem base historica", tone: "positive" },
+    { label: "Horas apontadas", value: "0h", delta: "0% rentaveis", tone: "positive" },
+    { label: "Riscos criticos", value: "0", delta: "monitoramento executivo", tone: "positive" },
+  ],
+  portfolio_trend: [
+    { label: "S24", progress_percent: 0 },
+    { label: "S25", progress_percent: 0 },
+    { label: "S26", progress_percent: 0 },
+    { label: "S27", progress_percent: 0 },
+    { label: "S28", progress_percent: 0 },
+    { label: "S29", progress_percent: 0 },
+  ],
+  initiatives: [],
+  executive_summary: [
+    "Cadastre projetos, marcos, riscos e acoes para alimentar o dashboard.",
+  ],
+  milestones: [],
+  risks: [],
+  actions: [],
+};
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
-  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
+  const totalHours = useMemo(
+    () => projects.reduce((total, project) => total + project.actual_hours, 0),
+    [projects],
+  );
+  const billableHours = useMemo(
+    () => projects.reduce((total, project) => total + project.billable_hours, 0),
+    [projects],
+  );
+  const nonBillableHours = useMemo(
+    () => projects.reduce((total, project) => total + project.non_billable_hours, 0),
+    [projects],
+  );
+  const billablePercent = totalHours ? Math.round((billableHours / totalHours) * 100) : 0;
+  const otherHours = Math.max(totalHours - billableHours - nonBillableHours, 0);
+
+  async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.detail ?? "Nao foi possivel completar a operacao.");
+    }
+    return response.json() as Promise<T>;
+  }
+
+  async function loadData() {
+    setLoading(true);
+    setError("");
+    try {
+      const [dashboardData, projectData] = await Promise.all([
+        apiRequest<Dashboard>("/api/v1/dashboard/executive"),
+        apiRequest<Project[]>("/api/v1/projects"),
+      ]);
+      setDashboard(dashboardData);
+      setProjects(projectData);
+      if (!selectedProjectId && projectData.length) {
+        setSelectedProjectId(projectData[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao carregar dashboard.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openSection(section: Section) {
     setActiveSection(section);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function handleProjectSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      "/api/v1/projects",
+      {
+        name: String(form.get("name")),
+        client_name: String(form.get("client_name")),
+        description: String(form.get("description") || ""),
+        manager_name: String(form.get("manager_name") || ""),
+        start_date: String(form.get("start_date")),
+        target_end_date: String(form.get("target_end_date")),
+        contracted_hours: Number(form.get("contracted_hours") || 0),
+        progress_percent: Number(form.get("progress_percent") || 0),
+        planned_hours: Number(form.get("planned_hours") || 0),
+        actual_hours: Number(form.get("actual_hours") || 0),
+        billable_hours: Number(form.get("billable_hours") || 0),
+        non_billable_hours: Number(form.get("non_billable_hours") || 0),
+        status: String(form.get("status")),
+      },
+      "Projeto salvo e dashboard atualizado.",
+    );
+  }
+
+  async function handleMilestoneSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/dashboard/projects/${selectedProject.id}/milestones`,
+      {
+        title: String(form.get("title")),
+        due_date: String(form.get("due_date")),
+        status: String(form.get("status")),
+      },
+      "Marco salvo e indicadores recalculados.",
+    );
+  }
+
+  async function handleRiskSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/dashboard/projects/${selectedProject.id}/risks`,
+      {
+        title: String(form.get("title")),
+        description: String(form.get("description") || ""),
+        severity: String(form.get("severity")),
+        status: String(form.get("status")),
+      },
+      "Risco salvo e saude do portfolio recalculada.",
+    );
+  }
+
+  async function handleActionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/dashboard/projects/${selectedProject.id}/actions`,
+      {
+        title: String(form.get("title")),
+        priority: String(form.get("priority")),
+        due_date: String(form.get("due_date")),
+        status: String(form.get("status")),
+      },
+      "Acao salva e plano atualizado.",
+    );
+  }
+
+  async function submitAndReload(path: string, body: unknown, successMessage: string) {
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(path, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setModalMode(null);
+      setMessage(successMessage);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar dados.");
+    }
   }
 
   return (
@@ -30,7 +277,7 @@ export default function Home() {
           </div>
         </div>
 
-        <nav className="nav" aria-label="Navegação principal">
+        <nav className="nav" aria-label="Navegacao principal">
           {navItems.map((item) => (
             <button
               className={activeSection === item.id ? "nav-item active" : "nav-item"}
@@ -50,7 +297,7 @@ export default function Home() {
             <span>
               anos conectando
               <br />
-              negócios e tecnologia
+              negocios e tecnologia
             </span>
           </div>
           <button className="collapse-btn" type="button">
@@ -62,7 +309,7 @@ export default function Home() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-left">
-            <button className="menu-btn" type="button" aria-label="Abrir menu">
+            <button className="menu-btn" onClick={loadData} type="button" aria-label="Sincronizar">
               ☰
             </button>
             <h1>Status Report Semanal</h1>
@@ -70,15 +317,15 @@ export default function Home() {
 
           <div className="topbar-actions">
             <label className="period-select">
-              <span>Período</span>
+              <span>Periodo</span>
               <select defaultValue="current">
                 <option value="current">12 a 18 de maio de 2025</option>
                 <option value="previous">05 a 11 de maio de 2025</option>
                 <option value="month">Maio de 2025</option>
               </select>
             </label>
-            <button className="icon-btn" type="button" aria-label="Notificações">
-              ♧<b>3</b>
+            <button className="icon-btn" onClick={loadData} type="button" aria-label="Atualizar">
+              ♧<b>{dashboard.actions.filter((action) => action.status !== "done").length}</b>
             </button>
             <div className="admin-mini">
               <div className="avatar">AD</div>
@@ -90,6 +337,10 @@ export default function Home() {
           </div>
         </header>
 
+        {error && <div className="notice error">{error}</div>}
+        {message && <div className="notice success">{message}</div>}
+        {loading && <div className="notice info">Sincronizando dados da API...</div>}
+
         {activeSection === "overview" && (
           <section className="content-section active">
             <section className="hero-panel">
@@ -97,158 +348,86 @@ export default function Home() {
                 <div className="shield">✓</div>
               </div>
               <div className="hero-content">
-                <h2>Visão consolidada da semana</h2>
+                <h2>Visao consolidada da semana</h2>
                 <p>
-                  Acompanhe o desempenho dos projetos, marcos, riscos e ações estratégicas em
-                  andamento.
+                  Os indicadores abaixo sao calculados a partir de projetos, marcos, riscos e plano
+                  de acao cadastrados.
                 </p>
               </div>
               <div className="hero-status">
-                <span>Saúde geral:</span>
-                <strong>Estável</strong>
+                <span>Saude geral:</span>
+                <strong>{dashboard.health_label}</strong>
                 <div className="pulse-line" />
               </div>
               <div className="hero-brand">
-                <span>25</span>
+                <span>{dashboard.health_percent}%</span>
                 <strong>maxicon</strong>
                 <small>sistemas</small>
               </div>
             </section>
 
             <section className="kpi-grid">
-              <article className="kpi-card">
-                <div className="kpi-icon">▣</div>
-                <div>
-                  <span>Projetos ativos</span>
-                  <strong>12</strong>
-                  <small className="positive">↑ 1 vs semana anterior</small>
-                </div>
-              </article>
-
-              <article className="kpi-card">
-                <div className="kpi-icon ring-icon" />
-                <div>
-                  <span>Progresso médio</span>
-                  <strong>63%</strong>
-                  <small className="positive">↑ 5 p.p. vs semana anterior</small>
-                </div>
-              </article>
-
-              <article className="kpi-card">
-                <div className="kpi-icon">◷</div>
-                <div>
-                  <span>Horas apontadas</span>
-                  <strong>1.248h</strong>
-                  <small className="positive">↑ 8% vs semana anterior</small>
-                </div>
-              </article>
-
-              <article className="kpi-card alert">
-                <div className="kpi-icon">!</div>
-                <div>
-                  <span>Riscos críticos</span>
-                  <strong>3</strong>
-                  <small className="negative">↓ 1 vs semana anterior</small>
-                </div>
-              </article>
+              {dashboard.metrics.map((metric, index) => (
+                <article className={metric.tone === "negative" ? "kpi-card alert" : "kpi-card"} key={metric.label}>
+                  <div className={index === 1 ? "kpi-icon ring-icon" : "kpi-icon"}>
+                    {index === 0 ? "▣" : index === 1 ? "" : index === 2 ? "◷" : "!"}
+                  </div>
+                  <div>
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    <small className={metric.tone === "negative" ? "negative" : "positive"}>
+                      {metric.delta}
+                    </small>
+                  </div>
+                </article>
+              ))}
             </section>
 
             <section className="dashboard-grid">
               <article className="panel progress-panel">
                 <div className="panel-header">
-                  <h3>Evolução do portfólio</h3>
+                  <h3>Evolucao do portfolio</h3>
                 </div>
                 <div className="chart-legend">
-                  <span className="solid">Progresso médio (%)</span>
+                  <span className="solid">Progresso medio (%)</span>
                   <span className="dashed">Meta</span>
                 </div>
-                <div className="line-chart-wrap">
-                  <div className="chart-y">
-                    <span>100%</span>
-                    <span>75%</span>
-                    <span>50%</span>
-                    <span>25%</span>
-                    <span>0%</span>
-                  </div>
-                  <div className="line-chart">
-                    <div className="goal-line" />
-                    <svg viewBox="0 0 700 230" preserveAspectRatio="none">
-                      <defs>
-                        <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#0d8cff" stopOpacity="0.35" />
-                          <stop offset="100%" stopColor="#0d8cff" stopOpacity="0" />
-                        </linearGradient>
-                      </defs>
-                      <path
-                        className="area"
-                        d="M0 155 L140 142 L280 126 L420 103 L560 96 L700 78 L700 230 L0 230 Z"
-                      />
-                      <polyline
-                        className="line"
-                        points="0,155 140,142 280,126 420,103 560,96 700,78"
-                      />
-                      <g className="points">
-                        <circle cx="0" cy="155" r="5" />
-                        <circle cx="140" cy="142" r="5" />
-                        <circle cx="280" cy="126" r="5" />
-                        <circle cx="420" cy="103" r="5" />
-                        <circle cx="560" cy="96" r="5" />
-                        <circle cx="700" cy="78" r="5" />
-                      </g>
-                    </svg>
-                    <div className="chart-values">
-                      <span>45%</span>
-                      <span>48%</span>
-                      <span>52%</span>
-                      <span>57%</span>
-                      <span>58%</span>
-                      <span>63%</span>
-                    </div>
-                    <div className="chart-labels">
-                      <span>14/abr</span>
-                      <span>21/abr</span>
-                      <span>28/abr</span>
-                      <span>05/mai</span>
-                      <span>12/mai</span>
-                      <span>18/mai</span>
-                    </div>
-                  </div>
-                </div>
+                <PortfolioChart points={dashboard.portfolio_trend} />
               </article>
 
               <article className="panel allocation-panel">
                 <div className="panel-header">
-                  <h3>Alocação de horas</h3>
+                  <h3>Alocacao de horas</h3>
                 </div>
                 <div className="donut-row">
-                  <div className="donut">
+                  <div className="donut" style={{ background: `conic-gradient(var(--blue-600) ${billablePercent}%, #75d3ff ${billablePercent}% 95%, #b6d1e8 95%)` }}>
                     <div className="donut-center">
-                      <strong>78%</strong>
-                      <span>Rentáveis</span>
+                      <strong>{billablePercent}%</strong>
+                      <span>Rentaveis</span>
                     </div>
                   </div>
                   <div className="legend">
                     <div>
                       <span className="legend-dot rentavel" />
                       <p>
-                        Rentáveis <b>974h (78%)</b>
+                        Rentaveis <b>{Math.round(billableHours)}h</b>
                       </p>
                     </div>
                     <div>
                       <span className="legend-dot nao-rentavel" />
                       <p>
-                        Não rentáveis <b>208h (17%)</b>
+                        Nao rentaveis <b>{Math.round(nonBillableHours)}h</b>
                       </p>
                     </div>
                     <div>
                       <span className="legend-dot outros" />
                       <p>
-                        Outros <b>66h (5%)</b>
+                        Outros <b>{Math.round(otherHours)}h</b>
                       </p>
                     </div>
                   </div>
                 </div>
-                <p className="total-hours">Total de horas: 1.248h</p>
+                <p className="total-hours">Total de horas: {Math.round(totalHours)}h</p>
               </article>
 
               <article className="panel summary-panel">
@@ -257,161 +436,19 @@ export default function Home() {
                   <span className="doc-icon">▤</span>
                 </div>
                 <div className="summary-box">
-                  <div className="summary-item success">
-                    <span>✓</span>
-                    <p>Entrega de marcos importantes em Cotrijal e Dunamis dentro do planejado.</p>
-                  </div>
-                  <div className="summary-item info">
-                    <span>i</span>
-                    <p>Aumento de 5 p.p. no progresso médio do portfólio.</p>
-                  </div>
-                  <div className="summary-item warning">
-                    <span>△</span>
-                    <p>3 riscos críticos em acompanhamento próximo e plano de mitigação em execução.</p>
-                  </div>
-                  <div className="summary-item trend">
-                    <span>↗</span>
-                    <p>Capacidade da equipe adequada para as demandas da próxima semana.</p>
-                  </div>
+                  {dashboard.executive_summary.map((summary, index) => (
+                    <div className={index === 2 ? "summary-item warning" : "summary-item success"} key={summary}>
+                      <span>{index === 2 ? "△" : index === 3 ? "↗" : "✓"}</span>
+                      <p>{summary}</p>
+                    </div>
+                  ))}
                 </div>
               </article>
             </section>
 
             <section className="lower-grid">
-              <article className="panel table-panel">
-                <div className="panel-header">
-                  <h3>Status por iniciativa</h3>
-                </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Iniciativa</th>
-                      <th>Progresso</th>
-                      <th>Variação</th>
-                      <th>Status</th>
-                      <th>Marcos</th>
-                      <th>Riscos</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>Cotrijal</td>
-                      <td>
-                        <div className="progress-cell">
-                          <b>72%</b>
-                          <div className="progress-track">
-                            <span style={{ width: "72%" }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="positive">↑ 8 p.p.</td>
-                      <td>
-                        <span className="status-pill green">No caminho</span>
-                      </td>
-                      <td>3/4</td>
-                      <td>
-                        <span className="risk-count">1</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Dunamis</td>
-                      <td>
-                        <div className="progress-cell">
-                          <b>65%</b>
-                          <div className="progress-track">
-                            <span style={{ width: "65%" }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="positive">↑ 6 p.p.</td>
-                      <td>
-                        <span className="status-pill green">No caminho</span>
-                      </td>
-                      <td>2/3</td>
-                      <td>
-                        <span className="risk-count">1</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Agrária</td>
-                      <td>
-                        <div className="progress-cell">
-                          <b>55%</b>
-                          <div className="progress-track">
-                            <span style={{ width: "55%" }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="negative">↓ 2 p.p.</td>
-                      <td>
-                        <span className="status-pill yellow">Atenção</span>
-                      </td>
-                      <td>1/3</td>
-                      <td>
-                        <span className="risk-count muted">0</span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>Olfar</td>
-                      <td>
-                        <div className="progress-cell">
-                          <b>42%</b>
-                          <div className="progress-track">
-                            <span style={{ width: "42%" }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="negative">↓ 4 p.p.</td>
-                      <td>
-                        <span className="status-pill red">Atrasado</span>
-                      </td>
-                      <td>1/4</td>
-                      <td>
-                        <span className="risk-count">1</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                <button className="text-link" onClick={() => openSection("projects")} type="button">
-                  Ver todas as iniciativas →
-                </button>
-              </article>
-
-              <article className="panel action-panel">
-                <div className="panel-header">
-                  <h3>Plano de ação – próximos passos</h3>
-                  <span className="doc-icon">▦</span>
-                </div>
-                <div className="action-list">
-                  <label>
-                    <input type="checkbox" />
-                    <span>Mitigar riscos críticos identificados</span>
-                    <b className="priority high">Alta</b>
-                    <em>22/05</em>
-                  </label>
-                  <label>
-                    <input type="checkbox" />
-                    <span>Finalizar integrações – Cotrijal</span>
-                    <b className="priority medium">Média</b>
-                    <em>23/05</em>
-                  </label>
-                  <label>
-                    <input type="checkbox" />
-                    <span>Revisão de escopo – Olfar</span>
-                    <b className="priority high">Alta</b>
-                    <em>23/05</em>
-                  </label>
-                  <label>
-                    <input defaultChecked type="checkbox" />
-                    <span>Report de desempenho para stakeholders</span>
-                    <b className="priority low">Baixa</b>
-                    <em>19/05</em>
-                  </label>
-                </div>
-                <button className="text-link" onClick={() => openSection("actions")} type="button">
-                  Ver plano completo →
-                </button>
-              </article>
+              <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
+              <ActionPanel actions={dashboard.actions} openActions={() => openSection("actions")} />
             </section>
           </section>
         )}
@@ -420,55 +457,14 @@ export default function Home() {
           <section className="content-section active">
             <div className="section-heading">
               <div>
-                <span className="eyebrow">Portfólio</span>
+                <span className="eyebrow">Portfolio</span>
                 <h2>Projetos em andamento</h2>
               </div>
-              <button className="primary-btn" onClick={() => setModalOpen(true)} type="button">
+              <button className="primary-btn" onClick={() => setModalMode("project")} type="button">
                 + Adicionar projeto
               </button>
             </div>
-            <article className="panel table-panel wide">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Projeto</th>
-                    <th>Responsável</th>
-                    <th>Progresso</th>
-                    <th>Prazo</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Cotrijal • Integração SAP</td>
-                    <td>Jefferson</td>
-                    <td>72%</td>
-                    <td>22/05</td>
-                    <td>
-                      <span className="status-pill green">No caminho</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Dunamis • Migração</td>
-                    <td>Vanessa</td>
-                    <td>65%</td>
-                    <td>23/05</td>
-                    <td>
-                      <span className="status-pill green">No caminho</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Agrária • Evolutivos</td>
-                    <td>Irwin</td>
-                    <td>55%</td>
-                    <td>27/05</td>
-                    <td>
-                      <span className="status-pill yellow">Atenção</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </article>
+            <ProjectTable projects={projects} selectProject={setSelectedProjectId} />
           </section>
         )}
 
@@ -479,17 +475,18 @@ export default function Home() {
                 <span className="eyebrow">Planejamento</span>
                 <h2>Marcos da semana</h2>
               </div>
+              <button className="primary-btn" onClick={() => setModalMode("milestone")} type="button">
+                + Novo marco
+              </button>
             </div>
             <div className="milestone-grid">
-              {["Revisão do plano de cutover", "Testes integrados", "Go/No-Go executivo"].map(
-                (item, index) => (
-                  <article className="panel milestone-card" key={item}>
-                    <span>{index === 0 ? "15/05" : index === 1 ? "18/05" : "22/05"}</span>
-                    <h3>{item}</h3>
-                    <p>Responsáveis alinhados, dependências mapeadas e evidências em preparação.</p>
-                  </article>
-                ),
-              )}
+              {dashboard.milestones.map((milestone) => (
+                <article className="panel milestone-card" key={milestone.id}>
+                  <span>{milestone.due_date}</span>
+                  <h3>{milestone.title}</h3>
+                  <p>Status: {milestone.status}</p>
+                </article>
+              ))}
             </div>
           </section>
         )}
@@ -498,26 +495,21 @@ export default function Home() {
           <section className="content-section active">
             <div className="section-heading">
               <div>
-                <span className="eyebrow">Governança</span>
-                <h2>Riscos críticos</h2>
+                <span className="eyebrow">Governanca</span>
+                <h2>Riscos criticos</h2>
               </div>
+              <button className="primary-btn" onClick={() => setModalMode("risk")} type="button">
+                + Novo risco
+              </button>
             </div>
             <div className="risk-grid">
-              <article className="panel risk-card critical">
-                <span>Crítico</span>
-                <h3>Dependência de retorno SAP</h3>
-                <p>Cenários alternativos dependem de validação externa.</p>
-              </article>
-              <article className="panel risk-card high">
-                <span>Alto</span>
-                <h3>Capacidade insuficiente</h3>
-                <p>Backlog acumulado acima da disponibilidade atual.</p>
-              </article>
-              <article className="panel risk-card medium">
-                <span>Médio</span>
-                <h3>Treinamento das unidades</h3>
-                <p>Agenda de treinamento reduz janela para testes finais.</p>
-              </article>
+              {dashboard.risks.map((risk) => (
+                <article className={`panel risk-card ${risk.severity}`} key={risk.id}>
+                  <span>{risk.severity}</span>
+                  <h3>{risk.title}</h3>
+                  <p>{risk.description || "Sem descricao complementar."}</p>
+                </article>
+              ))}
             </div>
           </section>
         )}
@@ -526,16 +518,22 @@ export default function Home() {
           <section className="content-section active">
             <div className="section-heading">
               <div>
-                <span className="eyebrow">Execução</span>
-                <h2>Plano de ação completo</h2>
+                <span className="eyebrow">Execucao</span>
+                <h2>Plano de acao completo</h2>
               </div>
+              <button className="primary-btn" onClick={() => setModalMode("action")} type="button">
+                + Nova acao
+              </button>
             </div>
             <div className="kanban">
-              {["A fazer", "Em andamento", "Concluído"].map((column) => (
-                <article className="panel kanban-column" key={column}>
-                  <h3>{column}</h3>
-                  <div className="task-card">Validar cenários fora do caminho feliz</div>
-                  <div className="task-card">Preparar apresentação Go/No-Go</div>
+              {(["todo", "in_progress", "done"] as const).map((status) => (
+                <article className="panel kanban-column" key={status}>
+                  <h3>{status === "todo" ? "A fazer" : status === "in_progress" ? "Em andamento" : "Concluido"}</h3>
+                  {dashboard.actions
+                    .filter((action) => action.status === status)
+                    .map((action) => (
+                      <div className="task-card" key={action.id}>{action.title}</div>
+                    ))}
                 </article>
               ))}
             </div>
@@ -543,51 +541,411 @@ export default function Home() {
         )}
       </main>
 
-      {modalOpen && (
-        <div className="modal" onClick={() => setModalOpen(false)}>
-          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" onClick={() => setModalOpen(false)} type="button">
-              ×
-            </button>
-            <span className="eyebrow">Novo status report</span>
-            <h2>Criar reporte semanal</h2>
-            <div className="form-grid">
-              <label>
-                Projeto
-                <input placeholder="Ex.: Cotrijal • Integração SAP" />
-              </label>
-              <label>
-                Período
-                <input type="week" />
-              </label>
-              <label>
-                Progresso (%)
-                <input max="100" min="0" placeholder="63" type="number" />
-              </label>
-              <label>
-                Status
-                <select>
-                  <option>No caminho</option>
-                  <option>Atenção</option>
-                  <option>Atrasado</option>
-                </select>
-              </label>
-              <label className="full">
-                Resumo executivo
-                <textarea placeholder="Principais avanços, desvios e decisões..." rows={4} />
-              </label>
-            </div>
-            <div className="modal-actions">
-              <button className="secondary-btn" onClick={() => setModalOpen(false)} type="button">
-                Cancelar
-              </button>
-              <button className="primary-btn" onClick={() => setModalOpen(false)} type="button">
-                Salvar reporte
-              </button>
-            </div>
-          </div>
-        </div>
+      {modalMode && (
+        <DataModal
+          mode={modalMode}
+          projects={projects}
+          selectedProjectId={selectedProject?.id ?? ""}
+          setSelectedProjectId={setSelectedProjectId}
+          close={() => setModalMode(null)}
+          onProjectSubmit={handleProjectSubmit}
+          onMilestoneSubmit={handleMilestoneSubmit}
+          onRiskSubmit={handleRiskSubmit}
+          onActionSubmit={handleActionSubmit}
+        />
       )}
     </div>
+  );
+}
+
+function PortfolioChart({ points }: { points: Dashboard["portfolio_trend"] }) {
+  const safePoints = points.length ? points : emptyDashboard.portfolio_trend;
+  const coordinates = safePoints
+    .map((point, index) => {
+      const x = (index / Math.max(safePoints.length - 1, 1)) * 700;
+      const y = 230 - (Math.min(point.progress_percent, 100) / 100) * 190;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const area = `M${coordinates.replaceAll(" ", " L")} L700 230 L0 230 Z`;
+
+  return (
+    <div className="line-chart-wrap">
+      <div className="chart-y">
+        <span>100%</span>
+        <span>75%</span>
+        <span>50%</span>
+        <span>25%</span>
+        <span>0%</span>
+      </div>
+      <div className="line-chart">
+        <div className="goal-line" />
+        <svg viewBox="0 0 700 230" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0d8cff" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="#0d8cff" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <path className="area" d={area} />
+          <polyline className="line" points={coordinates} />
+        </svg>
+        <div className="chart-values">
+          {safePoints.map((point) => (
+            <span key={point.label}>{Math.round(point.progress_percent)}%</span>
+          ))}
+        </div>
+        <div className="chart-labels">
+          {safePoints.map((point) => (
+            <span key={point.label}>{point.label}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatusTable({ dashboard, openProjects }: { dashboard: Dashboard; openProjects: () => void }) {
+  return (
+    <article className="panel table-panel">
+      <div className="panel-header">
+        <h3>Status por iniciativa</h3>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Iniciativa</th>
+            <th>Progresso</th>
+            <th>Variacao</th>
+            <th>Status</th>
+            <th>Marcos</th>
+            <th>Riscos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dashboard.initiatives.map((initiative) => (
+            <tr key={initiative.project_id}>
+              <td>{initiative.client_name}</td>
+              <td>
+                <div className="progress-cell">
+                  <b>{Math.round(initiative.progress_percent)}%</b>
+                  <div className="progress-track">
+                    <span style={{ width: `${initiative.progress_percent}%` }} />
+                  </div>
+                </div>
+              </td>
+              <td className={initiative.variation >= 0 ? "positive" : "negative"}>
+                {initiative.variation >= 0 ? "↑" : "↓"} {Math.abs(initiative.variation)} p.p.
+              </td>
+              <td>
+                <span className={initiative.status_label === "at_risk" ? "status-pill yellow" : "status-pill green"}>
+                  {initiative.status_label === "at_risk" ? "Atencao" : "No caminho"}
+                </span>
+              </td>
+              <td>
+                {initiative.milestones_done}/{initiative.milestones_total}
+              </td>
+              <td>
+                <span className={initiative.critical_risks ? "risk-count" : "risk-count muted"}>
+                  {initiative.critical_risks}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button className="text-link" onClick={openProjects} type="button">
+        Ver todas as iniciativas →
+      </button>
+    </article>
+  );
+}
+
+function ActionPanel({ actions, openActions }: { actions: ActionItem[]; openActions: () => void }) {
+  return (
+    <article className="panel action-panel">
+      <div className="panel-header">
+        <h3>Plano de acao - proximos passos</h3>
+        <span className="doc-icon">▦</span>
+      </div>
+      <div className="action-list">
+        {actions.map((action) => (
+          <label key={action.id}>
+            <input checked={action.status === "done"} readOnly type="checkbox" />
+            <span>{action.title}</span>
+            <b className={`priority ${action.priority}`}>{action.priority}</b>
+            <em>{action.due_date.slice(5)}</em>
+          </label>
+        ))}
+      </div>
+      <button className="text-link" onClick={openActions} type="button">
+        Ver plano completo →
+      </button>
+    </article>
+  );
+}
+
+function ProjectTable({
+  projects,
+  selectProject,
+}: {
+  projects: Project[];
+  selectProject: (projectId: string) => void;
+}) {
+  return (
+    <article className="panel table-panel wide">
+      <table>
+        <thead>
+          <tr>
+            <th>Projeto</th>
+            <th>Responsavel</th>
+            <th>Progresso</th>
+            <th>Prazo</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map((project) => (
+            <tr key={project.id} onClick={() => selectProject(project.id)}>
+              <td>{project.name}</td>
+              <td>{project.manager_name || "Nao informado"}</td>
+              <td>{project.progress_percent}%</td>
+              <td>{project.target_end_date}</td>
+              <td>
+                <span className={project.status === "at_risk" ? "status-pill yellow" : "status-pill green"}>
+                  {project.status}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </article>
+  );
+}
+
+function DataModal({
+  mode,
+  projects,
+  selectedProjectId,
+  setSelectedProjectId,
+  close,
+  onProjectSubmit,
+  onMilestoneSubmit,
+  onRiskSubmit,
+  onActionSubmit,
+}: {
+  mode: ModalMode;
+  projects: Project[];
+  selectedProjectId: string;
+  setSelectedProjectId: (projectId: string) => void;
+  close: () => void;
+  onProjectSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onMilestoneSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onRiskSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onActionSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const title =
+    mode === "project"
+      ? "Novo projeto"
+      : mode === "milestone"
+        ? "Novo marco"
+        : mode === "risk"
+          ? "Novo risco"
+          : "Nova acao";
+  const submitHandler =
+    mode === "project"
+      ? onProjectSubmit
+      : mode === "milestone"
+        ? onMilestoneSubmit
+        : mode === "risk"
+          ? onRiskSubmit
+          : onActionSubmit;
+
+  return (
+    <div className="modal" onClick={close}>
+      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+        <button className="modal-close" onClick={close} type="button">
+          ×
+        </button>
+        <span className="eyebrow">Preencher dados do dashboard</span>
+        <h2>{title}</h2>
+        <form className="form-grid" onSubmit={submitHandler}>
+          {mode !== "project" && (
+            <label className="full">
+              Projeto
+              <select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {mode === "project" && <ProjectFields />}
+          {mode === "milestone" && <MilestoneFields />}
+          {mode === "risk" && <RiskFields />}
+          {mode === "action" && <ActionFields />}
+          <div className="modal-actions full">
+            <button className="secondary-btn" onClick={close} type="button">
+              Cancelar
+            </button>
+            <button className="primary-btn" type="submit">
+              Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ProjectFields() {
+  return (
+    <>
+      <label>
+        Nome
+        <input name="name" required placeholder="Implantacao Cotrijal" />
+      </label>
+      <label>
+        Cliente
+        <input name="client_name" required placeholder="Cotrijal" />
+      </label>
+      <label>
+        Responsavel
+        <input name="manager_name" placeholder="Jefferson" />
+      </label>
+      <label>
+        Status
+        <select name="status" defaultValue="active">
+          <option value="planning">Planejamento</option>
+          <option value="active">Ativo</option>
+          <option value="at_risk">Atencao</option>
+          <option value="completed">Concluido</option>
+        </select>
+      </label>
+      <label>
+        Inicio
+        <input name="start_date" required type="date" defaultValue={today} />
+      </label>
+      <label>
+        Prazo
+        <input name="target_end_date" required type="date" defaultValue={nextMonth} />
+      </label>
+      <label>
+        Progresso (%)
+        <input name="progress_percent" min="0" max="100" type="number" defaultValue="63" />
+      </label>
+      <label>
+        Horas contratadas
+        <input name="contracted_hours" min="0" type="number" defaultValue="240" />
+      </label>
+      <label>
+        Horas planejadas
+        <input name="planned_hours" min="0" type="number" defaultValue="120" />
+      </label>
+      <label>
+        Horas apontadas
+        <input name="actual_hours" min="0" type="number" defaultValue="80" />
+      </label>
+      <label>
+        Horas rentaveis
+        <input name="billable_hours" min="0" type="number" defaultValue="64" />
+      </label>
+      <label>
+        Horas nao rentaveis
+        <input name="non_billable_hours" min="0" type="number" defaultValue="16" />
+      </label>
+      <label className="full">
+        Descricao
+        <textarea name="description" rows={3} placeholder="Resumo executivo do projeto" />
+      </label>
+    </>
+  );
+}
+
+function MilestoneFields() {
+  return (
+    <>
+      <label>
+        Marco
+        <input name="title" required placeholder="Go/No-Go executivo" />
+      </label>
+      <label>
+        Prazo
+        <input name="due_date" required type="date" defaultValue={nextMonth} />
+      </label>
+      <label className="full">
+        Status
+        <select name="status" defaultValue="pending">
+          <option value="pending">Pendente</option>
+          <option value="done">Concluido</option>
+          <option value="late">Atrasado</option>
+        </select>
+      </label>
+    </>
+  );
+}
+
+function RiskFields() {
+  return (
+    <>
+      <label>
+        Risco
+        <input name="title" required placeholder="Dependencia de retorno SAP" />
+      </label>
+      <label>
+        Severidade
+        <select name="severity" defaultValue="high">
+          <option value="medium">Medio</option>
+          <option value="high">Alto</option>
+          <option value="critical">Critico</option>
+        </select>
+      </label>
+      <label>
+        Status
+        <select name="status" defaultValue="open">
+          <option value="open">Aberto</option>
+          <option value="mitigating">Mitigando</option>
+          <option value="closed">Fechado</option>
+        </select>
+      </label>
+      <label className="full">
+        Descricao
+        <textarea name="description" rows={3} placeholder="Impacto, probabilidade e mitigacao" />
+      </label>
+    </>
+  );
+}
+
+function ActionFields() {
+  return (
+    <>
+      <label>
+        Acao
+        <input name="title" required placeholder="Finalizar integracoes - Cotrijal" />
+      </label>
+      <label>
+        Prioridade
+        <select name="priority" defaultValue="high">
+          <option value="low">Baixa</option>
+          <option value="medium">Media</option>
+          <option value="high">Alta</option>
+        </select>
+      </label>
+      <label>
+        Prazo
+        <input name="due_date" required type="date" defaultValue={nextMonth} />
+      </label>
+      <label>
+        Status
+        <select name="status" defaultValue="todo">
+          <option value="todo">A fazer</option>
+          <option value="in_progress">Em andamento</option>
+          <option value="done">Concluido</option>
+        </select>
+      </label>
+    </>
   );
 }
