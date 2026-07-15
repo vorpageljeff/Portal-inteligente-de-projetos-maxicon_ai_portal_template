@@ -17,7 +17,7 @@ services:
           name: maxicon-ai-portal-db
           property: connectionString
       - key: CORS_ORIGINS
-        value: https://maxicon-ai-portal-web.vercel.app
+        value: https://portal-inteligente-de-projetos-maxi.vercel.app,https://maxicon-ai-portal-web.vercel.app
       - key: AI_PROVIDER
         value: mock
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
