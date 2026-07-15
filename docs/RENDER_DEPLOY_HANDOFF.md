@@ -34,6 +34,8 @@ Configuração esperada:
 
 - API: `starter`, para não hibernar.
 - Banco: `basic-256mb`, menor Postgres pago atual no Blueprint.
+- Python: `3.12.8`.
+- Start Command: `python -m alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
 
 Secrets:
 

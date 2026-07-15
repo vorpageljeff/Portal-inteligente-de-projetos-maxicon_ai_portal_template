@@ -31,6 +31,7 @@ Configure no dashboard do Render:
 
 ## Variáveis importantes
 
+- `PYTHON_VERSION`: fixada em `3.12.8` para evitar troca inesperada de runtime.
 - `DATABASE_URL`: preenchida pelo banco gerenciado do Render.
 - `CORS_ORIGINS`: depois do deploy web na Vercel, trocar para a URL real da Vercel.
 - `AI_PROVIDER`: usar `mock` enquanto não houver provedor real aprovado.
@@ -48,5 +49,6 @@ Configure no dashboard do Render:
 
 - O backend deve escutar `0.0.0.0:$PORT`.
 - Migrations rodam no `startCommand` da API.
+- O start usa `python -m alembic` e `python -m uvicorn` para evitar falha por PATH.
 - Seed não deve rodar automaticamente em produção.
 - Se o domínio do frontend mudar, atualize `CORS_ORIGINS`.
