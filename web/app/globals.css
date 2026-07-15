@@ -29,6 +29,41 @@ body {
   min-height: 100vh;
 }
 
+.auth-screen {
+  align-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(13, 140, 255, 0.24), transparent 34%),
+    linear-gradient(135deg, #020917 0%, #061a34 54%, #020917 100%);
+  display: flex;
+  min-height: 100vh;
+  justify-content: center;
+  padding: 32px;
+}
+
+.auth-card {
+  background: rgba(4, 18, 38, 0.92);
+  border: 1px solid rgba(92, 167, 255, 0.32);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+  max-width: 460px;
+  padding: 36px;
+  width: 100%;
+}
+
+.auth-card img {
+  display: block;
+  height: auto;
+  margin-bottom: 28px;
+  width: 190px;
+}
+
+.auth-card h1 {
+  color: #fff;
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 8px 0 24px;
+}
+
 button,
 input,
 select,
@@ -43,6 +78,7 @@ button {
 .app-shell {
   display: flex;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 .sidebar {
@@ -56,7 +92,7 @@ button {
   inset: 0 auto 0 0;
   padding: 28px 18px;
   position: fixed;
-  width: 265px;
+  width: 244px;
   z-index: 20;
 }
 
@@ -130,9 +166,9 @@ button {
 
 .main {
   flex: 1;
-  margin-left: 265px;
+  margin-left: 244px;
   min-width: 0;
-  padding: 0 22px 34px;
+  padding: 0 18px 28px;
 }
 
 .topbar {
@@ -185,7 +221,7 @@ button {
 }
 
 .period-select {
-  min-width: 420px;
+  min-width: clamp(260px, 28vw, 420px);
   position: relative;
 }
 
@@ -254,10 +290,10 @@ textarea {
   border-radius: 14px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
   display: grid;
-  gap: 34px;
-  grid-template-columns: 190px minmax(360px, 1fr) 290px 210px;
-  min-height: 150px;
-  padding: 10px 28px;
+  gap: 18px;
+  grid-template-columns: 118px minmax(260px, 1fr) minmax(190px, 240px) minmax(120px, 160px);
+  min-height: 136px;
+  padding: 12px 20px;
 }
 
 .hero-orb {
@@ -265,9 +301,9 @@ textarea {
   border: 1px solid rgba(37, 200, 232, 0.2);
   border-radius: 50%;
   display: grid;
-  height: 140px;
+  height: 108px;
   place-items: center;
-  width: 140px;
+  width: 108px;
 }
 
 .shield {
@@ -277,21 +313,21 @@ textarea {
   box-shadow: 0 0 28px rgba(37, 200, 232, 0.75);
   color: var(--cyan);
   display: flex;
-  font-size: 54px;
+  font-size: 42px;
   font-weight: 700;
-  height: 96px;
+  height: 76px;
   justify-content: center;
-  width: 96px;
+  width: 76px;
 }
 
 .hero-content h2 {
-  font-size: 30px;
+  font-size: clamp(23px, 2vw, 30px);
   margin: 0 0 14px;
 }
 
 .hero-content p {
   color: #c2cce0;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.65;
   margin: 0;
   max-width: 580px;
@@ -299,18 +335,18 @@ textarea {
 
 .hero-status {
   border-left: 1px solid rgba(126, 167, 220, 0.24);
-  padding-left: 46px;
+  padding-left: 24px;
 }
 
 .hero-status span {
   display: block;
-  font-size: 22px;
+  font-size: 18px;
 }
 
 .hero-status strong {
   color: var(--green);
   display: inline-block;
-  font-size: 42px;
+  font-size: clamp(30px, 3vw, 42px);
   margin-top: 8px;
 }
 
@@ -340,14 +376,14 @@ textarea {
 
 .hero-brand span {
   display: block;
-  font-size: 58px;
+  font-size: clamp(40px, 4vw, 58px);
   font-weight: 800;
   line-height: 0.8;
 }
 
 .hero-brand strong {
   display: block;
-  font-size: 34px;
+  font-size: 28px;
   letter-spacing: -0.05em;
 }
 
@@ -358,7 +394,7 @@ textarea {
 
 .kpi-grid {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: 16px;
 }
@@ -374,9 +410,9 @@ textarea {
 .kpi-card {
   align-items: center;
   display: flex;
-  gap: 22px;
-  min-height: 118px;
-  padding: 20px;
+  gap: 14px;
+  min-height: 104px;
+  padding: 16px;
 }
 
 .kpi-icon {
@@ -385,11 +421,11 @@ textarea {
   border-radius: 50%;
   color: #8ec2ff;
   display: grid;
-  flex: 0 0 72px;
-  font-size: 34px;
-  height: 72px;
+  flex: 0 0 58px;
+  font-size: 28px;
+  height: 58px;
   place-items: center;
-  width: 72px;
+  width: 58px;
 }
 
 .ring-icon {
@@ -414,7 +450,7 @@ textarea {
 
 .kpi-card strong {
   display: block;
-  font-size: 38px;
+  font-size: 32px;
   line-height: 1;
   margin: 8px 0;
 }
@@ -430,19 +466,19 @@ textarea {
 .dashboard-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr) minmax(360px, 1fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr) minmax(280px, 0.9fr);
   margin-top: 16px;
 }
 
 .lower-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: minmax(0, 1.35fr) minmax(440px, 0.95fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
   margin-top: 16px;
 }
 
 .panel {
-  padding: 20px;
+  padding: 18px;
 }
 
 .panel-header {
@@ -561,7 +597,7 @@ textarea {
 .donut-row {
   align-items: center;
   display: flex;
-  gap: 24px;
+  gap: 18px;
   justify-content: center;
   min-height: 200px;
 }
@@ -570,19 +606,19 @@ textarea {
   background: conic-gradient(var(--blue-600) 78%, #75d3ff 78% 95%, #b6d1e8 95%);
   border-radius: 50%;
   display: grid;
-  height: 176px;
+  height: 150px;
   place-items: center;
   position: relative;
-  width: 176px;
+  width: 150px;
 }
 
 .donut::before {
   background: #06162f;
   border-radius: 50%;
   content: "";
-  height: 112px;
+  height: 96px;
   position: absolute;
-  width: 112px;
+  width: 96px;
 }
 
 .donut-center {
@@ -592,7 +628,7 @@ textarea {
 
 .donut-center strong {
   display: block;
-  font-size: 40px;
+  font-size: 32px;
 }
 
 .donut-center span {
@@ -935,6 +971,8 @@ td {
   box-shadow: 0 30px 100px rgba(0, 0, 0, 0.45);
   padding: 26px;
   position: relative;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
   width: min(650px, 100%);
 }
 
@@ -972,14 +1010,27 @@ td {
 }
 
 @media (max-width: 1320px) {
-  .hero-panel,
   .dashboard-grid,
   .lower-grid {
     grid-template-columns: 1fr;
   }
 
   .hero-panel {
+    grid-template-columns: 96px minmax(0, 1fr) minmax(180px, 220px);
+  }
+
+  .hero-brand {
+    display: none;
+  }
+
+  .hero-panel {
     align-items: start;
+  }
+}
+
+@media (max-width: 1180px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -995,6 +1046,7 @@ td {
 
   .main {
     margin-left: 0;
+    padding: 0 14px 24px;
   }
 
   .kpi-grid,

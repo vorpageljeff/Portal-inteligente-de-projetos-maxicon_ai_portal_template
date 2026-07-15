@@ -2,8 +2,9 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Section = "overview" | "projects" | "milestones" | "risks" | "actions";
+type Section = "overview" | "projects" | "milestones" | "risks" | "actions" | "reports";
 type ModalMode = "project" | "milestone" | "risk" | "action" | null;
+type AuthMode = "login" | "bootstrap";
 
 type Project = {
   id: string;
@@ -47,6 +48,24 @@ type ActionItem = {
   priority: "low" | "medium" | "high";
   due_date: string;
   status: "todo" | "in_progress" | "done";
+};
+
+type User = {
+  email: string;
+  full_name: string;
+  role: string;
+};
+
+type StatusReport = {
+  id: string;
+  project_id: string;
+  period_start: string;
+  period_end: string;
+  status: "collecting" | "draft" | "in_review" | "approved" | "presented" | "archived";
+  approved_by?: string | null;
+  approved_at?: string | null;
+  latest_content?: string | null;
+  created_at: string;
 };
 
 type Dashboard = {
@@ -116,6 +135,10 @@ export default function Home() {
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [reports, setReports] = useState<StatusReport[]>([]);
+  const [token, setToken] = useState("");
+  const [user, setUser] = useState<User | null>(null);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -136,11 +159,12 @@ export default function Home() {
   const billablePercent = totalHours ? Math.round((billableHours / totalHours) * 100) : 0;
   const otherHours = Math.max(totalHours - billableHours - nonBillableHours, 0);
 
-  async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  async function apiRequest<T>(path: string, init?: RequestInit, authToken = token): Promise<T> {
     const response = await fetch(`${apiBaseUrl}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         ...(init?.headers ?? {}),
       },
     });
@@ -152,6 +176,10 @@ export default function Home() {
   }
 
   async function loadData() {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError("");
     try {
@@ -172,7 +200,33 @@ export default function Home() {
   }
 
   useEffect(() => {
-    loadData();
+    const storedToken = window.localStorage.getItem("maxicon_portal_token") ?? "";
+    if (!storedToken) {
+      setLoading(false);
+      return;
+    }
+    setToken(storedToken);
+    apiRequest<User>("/api/v1/auth/me", undefined, storedToken)
+      .then((me) => {
+        setUser(me);
+        return Promise.all([
+          apiRequest<Dashboard>("/api/v1/dashboard/executive", undefined, storedToken),
+          apiRequest<Project[]>("/api/v1/projects", undefined, storedToken),
+        ]);
+      })
+      .then(([dashboardData, projectData]) => {
+        setDashboard(dashboardData);
+        setProjects(projectData);
+        if (projectData.length) {
+          setSelectedProjectId(projectData[0].id);
+        }
+      })
+      .catch(() => {
+        window.localStorage.removeItem("maxicon_portal_token");
+        setToken("");
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -268,6 +322,100 @@ export default function Home() {
     }
   }
 
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const path = authMode === "bootstrap" ? "/api/v1/auth/bootstrap-admin" : "/api/v1/auth/login";
+    const body =
+      authMode === "bootstrap"
+        ? {
+            email: String(form.get("email")),
+            full_name: String(form.get("full_name")),
+            password: String(form.get("password")),
+          }
+        : {
+            email: String(form.get("email")),
+            password: String(form.get("password")),
+          };
+    setError("");
+    setMessage("");
+    try {
+      if (authMode === "bootstrap") {
+        await apiRequest(path, { method: "POST", body: JSON.stringify(body) }, "");
+        setAuthMode("login");
+        setMessage("Administrador criado. Agora faca login.");
+        return;
+      }
+      const response = await apiRequest<{ access_token: string; user: User }>(
+        path,
+        { method: "POST", body: JSON.stringify(body) },
+        "",
+      );
+      window.localStorage.setItem("maxicon_portal_token", response.access_token);
+      setToken(response.access_token);
+      setUser(response.user);
+      const [dashboardData, projectData] = await Promise.all([
+        apiRequest<Dashboard>("/api/v1/dashboard/executive", undefined, response.access_token),
+        apiRequest<Project[]>("/api/v1/projects", undefined, response.access_token),
+      ]);
+      setDashboard(dashboardData);
+      setProjects(projectData);
+      if (projectData.length) {
+        setSelectedProjectId(projectData[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nao foi possivel autenticar.");
+    }
+  }
+
+  function logout() {
+    window.localStorage.removeItem("maxicon_portal_token");
+    setToken("");
+    setUser(null);
+    setProjects([]);
+    setReports([]);
+  }
+
+  if (!token) {
+    return (
+      <main className="auth-screen">
+        <section className="auth-card">
+          <img alt="Maxicon Sistemas" src="/logo-maxicon.png" />
+          <span className="eyebrow">Portal Inteligente de Projetos</span>
+          <h1>{authMode === "bootstrap" ? "Criar primeiro administrador" : "Entrar no portal"}</h1>
+          {error && <div className="notice error">{error}</div>}
+          {message && <div className="notice success">{message}</div>}
+          <form className="form-grid" onSubmit={handleAuthSubmit}>
+            {authMode === "bootstrap" && (
+              <label className="full">
+                Nome
+                <input name="full_name" required placeholder="Administrador Maxicon" />
+              </label>
+            )}
+            <label className="full">
+              E-mail
+              <input name="email" required type="email" placeholder="admin@maxicon.com.br" />
+            </label>
+            <label className="full">
+              Senha
+              <input name="password" required minLength={8} type="password" />
+            </label>
+            <button className="primary-btn full" type="submit">
+              {authMode === "bootstrap" ? "Criar administrador" : "Entrar"}
+            </button>
+          </form>
+          <button
+            className="text-link"
+            onClick={() => setAuthMode(authMode === "login" ? "bootstrap" : "login")}
+            type="button"
+          >
+            {authMode === "login" ? "Primeiro acesso" : "Voltar para login"}
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -330,10 +478,13 @@ export default function Home() {
             <div className="admin-mini">
               <div className="avatar">AD</div>
               <div>
-                <strong>Admin</strong>
-                <span>Administrador</span>
+                <strong>{user?.full_name ?? "Usuario"}</strong>
+                <span>{user?.role ?? "autenticado"}</span>
               </div>
             </div>
+            <button className="text-link" onClick={logout} type="button">
+              Sair
+            </button>
           </div>
         </header>
 
@@ -763,7 +914,7 @@ function DataModal({
           : onActionSubmit;
 
   return (
-    <div className="modal" onClick={close}>
+    <div className="modal">
       <div className="modal-card" onClick={(event) => event.stopPropagation()}>
         <button className="modal-close" onClick={close} type="button">
           ×

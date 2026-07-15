@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.project import Project, ProjectStatus
+from app.models.security import User
 from app.models.work_items import (
     ActionItem,
     ActionStatus,
@@ -28,9 +30,11 @@ from app.schemas.dashboard import (
     RiskCreate,
     RiskRead,
 )
+from app.services.audit import audit
 
 router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 def require_project(project_id: uuid.UUID, db: Session) -> Project:
@@ -41,7 +45,7 @@ def require_project(project_id: uuid.UUID, db: Session) -> Project:
 
 
 @router.get("/executive", response_model=DashboardSummary)
-def executive_dashboard(db: DbSession) -> DashboardSummary:
+def executive_dashboard(db: DbSession, _: CurrentUser) -> DashboardSummary:
     projects = list(db.scalars(select(Project).order_by(Project.created_at.desc())))
     milestones = list(db.scalars(select(Milestone).order_by(Milestone.due_date.asc())))
     risks = list(db.scalars(select(Risk).order_by(Risk.created_at.desc())))
@@ -163,7 +167,7 @@ def executive_dashboard(db: DbSession) -> DashboardSummary:
 
 
 @router.get("/projects/{project_id}/milestones", response_model=list[MilestoneRead])
-def list_milestones(project_id: uuid.UUID, db: DbSession) -> list[Milestone]:
+def list_milestones(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[Milestone]:
     require_project(project_id, db)
     return list(db.scalars(select(Milestone).where(Milestone.project_id == project_id)))
 
@@ -173,17 +177,24 @@ def list_milestones(project_id: uuid.UUID, db: DbSession) -> list[Milestone]:
     response_model=MilestoneRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_milestone(project_id: uuid.UUID, payload: MilestoneCreate, db: DbSession) -> Milestone:
+def create_milestone(
+    project_id: uuid.UUID,
+    payload: MilestoneCreate,
+    db: DbSession,
+    user: CurrentUser,
+) -> Milestone:
     require_project(project_id, db)
     milestone = Milestone(project_id=project_id, **payload.model_dump())
     db.add(milestone)
+    db.flush()
+    audit(db, actor=user, action="create", entity_type="milestone", entity_id=str(milestone.id))
     db.commit()
     db.refresh(milestone)
     return milestone
 
 
 @router.get("/projects/{project_id}/risks", response_model=list[RiskRead])
-def list_risks(project_id: uuid.UUID, db: DbSession) -> list[Risk]:
+def list_risks(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[Risk]:
     require_project(project_id, db)
     return list(db.scalars(select(Risk).where(Risk.project_id == project_id)))
 
@@ -193,20 +204,27 @@ def list_risks(project_id: uuid.UUID, db: DbSession) -> list[Risk]:
     response_model=RiskRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_risk(project_id: uuid.UUID, payload: RiskCreate, db: DbSession) -> Risk:
+def create_risk(
+    project_id: uuid.UUID,
+    payload: RiskCreate,
+    db: DbSession,
+    user: CurrentUser,
+) -> Risk:
     require_project(project_id, db)
     risk = Risk(project_id=project_id, **payload.model_dump())
     db.add(risk)
     if risk.severity in {RiskSeverity.HIGH, RiskSeverity.CRITICAL}:
         project = require_project(project_id, db)
         project.status = ProjectStatus.AT_RISK
+    db.flush()
+    audit(db, actor=user, action="create", entity_type="risk", entity_id=str(risk.id))
     db.commit()
     db.refresh(risk)
     return risk
 
 
 @router.get("/projects/{project_id}/actions", response_model=list[ActionItemRead])
-def list_actions(project_id: uuid.UUID, db: DbSession) -> list[ActionItem]:
+def list_actions(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[ActionItem]:
     require_project(project_id, db)
     return list(db.scalars(select(ActionItem).where(ActionItem.project_id == project_id)))
 
@@ -216,10 +234,17 @@ def list_actions(project_id: uuid.UUID, db: DbSession) -> list[ActionItem]:
     response_model=ActionItemRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_action(project_id: uuid.UUID, payload: ActionItemCreate, db: DbSession) -> ActionItem:
+def create_action(
+    project_id: uuid.UUID,
+    payload: ActionItemCreate,
+    db: DbSession,
+    user: CurrentUser,
+) -> ActionItem:
     require_project(project_id, db)
     action = ActionItem(project_id=project_id, **payload.model_dump())
     db.add(action)
+    db.flush()
+    audit(db, actor=user, action="create", entity_type="action_item", entity_id=str(action.id))
     db.commit()
     db.refresh(action)
     return action
