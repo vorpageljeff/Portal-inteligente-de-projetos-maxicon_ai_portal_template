@@ -2,6 +2,7 @@ services:
   - type: web
     name: maxicon-ai-portal-api
     runtime: python
+    plan: starter
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     healthCheckPath: /health
@@ -14,7 +15,7 @@ services:
           name: maxicon-ai-portal-db
           property: connectionString
       - key: CORS_ORIGINS
-        value: https://maxicon-ai-portal-web.onrender.com
+        value: https://maxicon-ai-portal-web.vercel.app
       - key: AI_PROVIDER
         value: mock
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
@@ -25,16 +26,8 @@ services:
         value: INFO
       - key: SECRET_KEY
         generateValue: true
-  - type: web
-    name: maxicon-ai-portal-web
-    runtime: node
-    rootDir: web
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
-    envVars:
-      - key: NEXT_PUBLIC_API_URL
-        value: https://maxicon-ai-portal-api.onrender.com
 databases:
   - name: maxicon-ai-portal-db
+    plan: basic-256mb
     databaseName: project_portal
     user: project_portal

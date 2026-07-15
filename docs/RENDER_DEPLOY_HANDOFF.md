@@ -1,49 +1,64 @@
-# Handoff de deploy no Render
-
-Este documento orienta o Codex e o responsável humano no deploy do projeto.
+# Handoff de deploy
 
 ## Estratégia
 
-Use um Render Blueprint com `render.yaml` na raiz do repositório. O Blueprint deverá criar API, frontend e PostgreSQL como recursos relacionados.
+- Render: apenas API FastAPI e PostgreSQL.
+- Vercel: frontend Next.js, quando necessário.
 
 ## Antes do push
 
 Execute:
 
 ```bash
-python -m pytest backend/tests
-cd web && npm ci && npm run build
-cd ../mobile && flutter pub get && flutter analyze
+python -m pytest
+python -m ruff check backend
+python -m mypy backend/app
 ```
 
-Confirme:
+Para validar o frontend localmente:
 
-- `.env` e secrets não estão no Git;
-- migrations estão versionadas;
-- `render.yaml` usa os diretórios corretos;
-- backend escuta `$PORT`;
-- frontend recebe `NEXT_PUBLIC_API_URL`;
-- CORS está restrito;
-- health check responde 200.
+```bash
+cd web
+npm ci
+npm run build
+```
 
-## Secrets para configurar no Render
+## Render
+
+O Blueprint deve criar somente:
+
+- `maxicon-ai-portal-api`
+- `maxicon-ai-portal-db`
+
+Configuração esperada:
+
+- API: `starter`, para não hibernar.
+- Banco: `basic-256mb`, menor Postgres pago atual no Blueprint.
+
+Secrets:
 
 - `SECRET_KEY`
 - `AI_API_KEY`, somente se houver provedor real aprovado
-- demais credenciais de integração futuras
+
+## Vercel
+
+Quando o web for publicado:
+
+- Root Directory: `web`
+- Build Command: `npm run build`
+- Install Command: `npm ci`
+- Environment Variable:
+  - `NEXT_PUBLIC_API_URL=https://maxicon-ai-portal-api.onrender.com`
+
+Depois, atualize no Render:
+
+```text
+CORS_ORIGINS=https://sua-url-vercel.vercel.app
+```
 
 ## Validação pós-deploy
 
-1. Abrir `/health` da API.
-2. Abrir `/docs` em ambiente de teste, caso permitido.
-3. Fazer login com usuário demo.
-4. Abrir projeto de demonstração.
-5. Criar ou editar uma tarefa.
-6. Registrar uma hora.
-7. Gerar status report.
-8. Aprovar o relatório.
-9. Conferir logs da API e frontend.
-
-## Limite de automação
-
-O Codex só poderá executar o deploy efetivo se o terminal estiver autenticado no repositório remoto e a conta do Render estiver conectada/autorizada. Sem isso, deverá preparar todos os arquivos, realizar commit local e informar o passo manual restante, sem declarar que o deploy ocorreu.
+1. Abrir `/health` da API no Render.
+2. Abrir `/docs`, se permitido.
+3. Conferir logs da API.
+4. Confirmar que o Blueprint não criou serviço web no Render.

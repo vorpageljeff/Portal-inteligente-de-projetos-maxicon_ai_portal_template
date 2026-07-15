@@ -10,7 +10,8 @@ MVP para gestão de projetos, horas, riscos, pendências e geração de status r
 - Migrações: Alembic
 - Web: Next.js + TypeScript
 - Mobile: Flutter/Dart
-- Deploy inicial: Render
+- Deploy da API e banco: Render
+- Deploy web: Vercel gratuito
 
 ## Início rápido
 
@@ -52,6 +53,13 @@ flutter run
 API: `http://localhost:8000/docs`
 
 Web: `http://localhost:3000`
+
+## Deploy
+
+- Render usa `render.yaml` apenas para API e PostgreSQL.
+- API usa plano `starter` para não hibernar.
+- Banco usa `basic-256mb` para manter o menor custo pago.
+- Vercel publica o frontend a partir do diretório `web`.
 
 ## Versionamento
 
