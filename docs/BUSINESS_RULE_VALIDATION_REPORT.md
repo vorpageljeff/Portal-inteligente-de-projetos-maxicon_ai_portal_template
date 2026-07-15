@@ -2,12 +2,13 @@
 
 Data da auditoria: 2026-07-15
 Atualizacao pos-correcao P0/P1: 2026-07-15
+Atualizacao de refinamento operacional: 2026-07-15
 
 ## 1. Resumo executivo
 
 O sistema evoluiu de uma tela demonstrativa para um MVP tecnico com frontend consumindo API real, backend FastAPI, persistencia via SQLAlchemy/PostgreSQL e migrations Alembic. Ja existe fluxo funcional para cadastrar projetos, marcos, riscos e acoes, e o dashboard executivo e recalculado a partir desses registros.
 
-Parecer atual: **APTO COM RESSALVAS** para piloto tecnico controlado. Foram adicionados autenticacao JWT, usuarios, auditoria, tarefas, entregas, impedimentos, apontamentos de horas, status report persistido/versionado/aprovavel e testes de fluxo minimo. Ainda nao e apto para producao porque faltam RBAC granular, equipes completas, capacidade, workflow avancado de aprovacao de horas, UI completa para todas as novas entidades e IA real auditavel.
+Parecer atual: **APTO COM RESSALVAS** para piloto tecnico controlado. Foram adicionados autenticacao JWT, usuarios, auditoria, tarefas, entregas, impedimentos, apontamentos de horas, status report persistido/versionado/aprovavel, telas operacionais integradas e testes de fluxo minimo. Ainda nao e apto para producao porque faltam RBAC granular, equipes completas, capacidade, workflow avancado de aprovacao de horas e IA real auditavel.
 
 ## 2. Arquitetura encontrada
 
@@ -119,13 +120,24 @@ Parecer atual: **APTO COM RESSALVAS** para piloto tecnico controlado. Foram adic
 - Recomendacao: implementar RBAC por entidade, vinculo usuario-projeto-cliente e tokens refresh/logout server-side.
 - Prioridade: P1.
 
+### TAR01 / ENT01 / RSC03 - Tarefas, entregas e impedimentos
+
+- Evidencia: `backend/app/models/operations.py`, `backend/app/api/v1/routes/operations.py`, secoes `Tarefas`, `Entregas` e `Impedimentos` em `web/app/page.tsx`.
+- Endpoint: `/api/v1/operations/projects/{project_id}/tasks`, `/deliverables`, `/impediments`.
+- Tabela: `tasks`, `deliverables`, `impediments`.
+- Regra esperada: registros vinculados ao projeto, com responsavel, datas, status e validacoes server-side.
+- Comportamento atual: front cadastra e lista registros reais; backend bloqueia projeto encerrado/cancelado, prazo invalido de impedimento e entrega concluida sem data real.
+- Risco: medio; ainda falta edicao, historico detalhado e dependencias entre tarefas.
+- Recomendacao: adicionar edicao/auditoria before-after, dependencias e fluxo de aceite formal.
+- Prioridade: P1.
+
 ### HOR01 a HOR06 - Horas e capacidade
 
 - Evidencia: `TimeEntry` em `backend/app/models/operations.py`; rota em `backend/app/api/v1/routes/operations.py`.
 - Endpoint: `POST/GET /api/v1/operations/projects/{project_id}/time-entries`.
 - Tabela: `time_entries`.
 - Regra esperada: apontamentos por usuario, tarefa, data, tipo, aprovacao, capacidade e regras de sobreposicao.
-- Comportamento atual: apontamento de horas existe com tipo e status de aprovacao; horas aprovadas atualizam totais do projeto. Ainda nao ha calendario, capacidade, sobreposicao, aprovacao por gestor ou UI completa.
+- Comportamento atual: apontamento de horas existe com tipo e status de aprovacao; front cadastra/lista horas reais; horas aprovadas atualizam totais do projeto. Backend valida valor maior que zero, limite de 24h e vinculo da tarefa ao projeto. Ainda nao ha calendario, capacidade, sobreposicao ou aprovacao por gestor.
 - Risco: medio/alto.
 - Recomendacao: criar workflow de aprovacao, capacidade mensal e validacao de sobreposicao/limite diario por usuario.
 - Prioridade: P1.
@@ -180,7 +192,7 @@ Parecer atual: **APTO COM RESSALVAS** para piloto tecnico controlado. Foram adic
 - Aprovacao gerencial completa de horas.
 - Capacidade e disponibilidade.
 - Publicacao e exportacao do report aprovado.
-- UI completa para tarefas, entregas, impedimentos e horas.
+- Edicao e historico detalhado para tarefas, entregas, impedimentos e horas.
 
 ## 9. Regras sem testes
 
@@ -249,10 +261,10 @@ python -m pytest
 Resultado:
 
 ```text
-4 passed in 4.28s
+5 passed in 3.92s
 ```
 
-Observacao: os testes agora cobrem autenticacao obrigatoria, bootstrap/login, projeto, tarefa, hora aprovada, status report gerado por dados persistidos e aprovacao.
+Observacao: os testes agora cobrem autenticacao obrigatoria, bootstrap/login, projeto, tarefa, hora aprovada, status report gerado por dados persistidos, aprovacao, entrega concluida sem data real, impedimento com prazo invalido e apontamento em tarefa fora do projeto.
 
 ## 15. Resultado dos builds
 
@@ -310,7 +322,7 @@ Situacao: **PARCIALMENTE CONFORME**. Deploy funcional nao equivale a prontidao d
 3. Adicionar filtros de periodo, projeto, cliente, equipe e responsavel.
 4. Criar seed demonstrativo Cotrijal idempotente.
 5. Remover periodo fixo do frontend e conectar ao filtro real.
-6. Completar campos de risco, marco e plano de acao.
+6. Adicionar edicao/fechamento formal para risco, marco, tarefa, entrega e impedimento.
 7. Bloquear defaults inseguros em ambiente de producao.
 
 ### P2/P3 - Melhorias
@@ -324,6 +336,6 @@ Situacao: **PARCIALMENTE CONFORME**. Deploy funcional nao equivale a prontidao d
 
 Classificacao: **APTO COM RESSALVAS**.
 
-O portal ja tem base tecnica para piloto tecnico controlado com usuarios internos: autenticacao, entidades centrais, horas rastreaveis, status report versionado e auditoria inicial. Ainda nao deve ser tratado como producao nem aberto para cliente externo sem RBAC granular, capacidade, exportacao aprovada, UI completa das novas entidades e governanca de IA.
+O portal ja tem base tecnica para piloto tecnico controlado com usuarios internos: autenticacao, entidades centrais, telas operacionais, horas rastreaveis, status report versionado e auditoria inicial. Ainda nao deve ser tratado como producao nem aberto para cliente externo sem RBAC granular, capacidade, exportacao aprovada, edicao/historico completo e governanca de IA.
 
 Os P0 estruturais mais urgentes foram reduzidos para P1 ou P0 especifico de IA/permissao granular. A proxima etapa recomendada e completar a interface operacional e endurecer seguranca antes do deploy para usuarios reais.

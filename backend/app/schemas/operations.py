@@ -51,6 +51,12 @@ class DeliverableCreate(BaseModel):
     actual_date: date | None = None
     status: WorkStatus = WorkStatus.TODO
 
+    @model_validator(mode="after")
+    def validate_completion(self):
+        if self.status == WorkStatus.DONE and not self.actual_date:
+            raise ValueError("Entrega concluida exige data real.")
+        return self
+
 
 class DeliverableRead(DeliverableCreate):
     id: uuid.UUID
@@ -70,6 +76,12 @@ class ImpedimentCreate(BaseModel):
     due_date: date
     status: WorkStatus = WorkStatus.BLOCKED
     resolution: str | None = None
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.due_date < self.opened_at:
+            raise ValueError("O prazo nao pode ser anterior a data de abertura.")
+        return self
 
 
 class ImpedimentRead(ImpedimentCreate):

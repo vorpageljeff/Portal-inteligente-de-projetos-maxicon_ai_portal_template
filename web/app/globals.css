@@ -908,10 +908,56 @@ td {
 
 .milestone-grid,
 .risk-grid,
-.kanban {
+.kanban,
+.record-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.record-card {
+  display: grid;
+  gap: 10px;
+}
+
+.record-card span {
+  color: #55a3ff;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.record-card p,
+.empty-text {
+  color: #c2cce0;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.record-card small {
+  color: #d9e4f3;
+}
+
+.alert-card {
+  border-top: 3px solid var(--yellow);
+}
+
+.report-list {
+  display: grid;
+  gap: 16px;
+}
+
+.report-card pre {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: #dbeafe;
+  line-height: 1.55;
+  margin: 0 0 16px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 14px;
+  white-space: pre-wrap;
 }
 
 .milestone-card span,
@@ -1052,7 +1098,8 @@ td {
   .kpi-grid,
   .milestone-grid,
   .risk-grid,
-  .kanban {
+  .kanban,
+  .record-grid {
     grid-template-columns: 1fr;
   }
 

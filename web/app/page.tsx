@@ -2,8 +2,27 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Section = "overview" | "projects" | "milestones" | "risks" | "actions" | "reports";
-type ModalMode = "project" | "milestone" | "risk" | "action" | null;
+type Section =
+  | "overview"
+  | "projects"
+  | "milestones"
+  | "risks"
+  | "actions"
+  | "tasks"
+  | "deliverables"
+  | "impediments"
+  | "hours"
+  | "reports";
+type ModalMode =
+  | "project"
+  | "milestone"
+  | "risk"
+  | "action"
+  | "task"
+  | "deliverable"
+  | "impediment"
+  | "timeEntry"
+  | null;
 type AuthMode = "login" | "bootstrap";
 
 type Project = {
@@ -68,6 +87,67 @@ type StatusReport = {
   created_at: string;
 };
 
+type Task = {
+  id: string;
+  project_id: string;
+  title: string;
+  owner_name: string;
+  start_date: string;
+  due_date: string;
+  estimated_hours: number;
+  progress_percent: number;
+  status: "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+  priority: "low" | "medium" | "high" | "critical";
+  responsible_org: "maxicon" | "client" | "sap" | "third_party";
+};
+
+type Deliverable = {
+  id: string;
+  project_id: string;
+  title: string;
+  acceptance_criteria: string;
+  owner_name: string;
+  due_date: string;
+  actual_date?: string | null;
+  status: "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+};
+
+type Impediment = {
+  id: string;
+  project_id: string;
+  description: string;
+  affected_activity: string;
+  owner_name: string;
+  responsible_org: "maxicon" | "client" | "sap" | "third_party";
+  impact: string;
+  opened_at: string;
+  due_date: string;
+  status: "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+  resolution?: string | null;
+};
+
+type TimeEntry = {
+  id: string;
+  project_id: string;
+  task_id?: string | null;
+  user_name: string;
+  entry_date: string;
+  hours: number;
+  description: string;
+  entry_type:
+    | "billable"
+    | "non_billable"
+    | "internal"
+    | "support"
+    | "rework"
+    | "meeting"
+    | "training"
+    | "travel"
+    | "implementation"
+    | "development";
+  approval_status: "draft" | "submitted" | "approved" | "rejected" | "corrected";
+};
+
 type Dashboard = {
   health_label: string;
   health_percent: number;
@@ -102,6 +182,11 @@ const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "milestones", label: "Marcos", icon: "⚑" },
   { id: "risks", label: "Riscos", icon: "!" },
   { id: "actions", label: "Plano de acao", icon: "☑" },
+  { id: "tasks", label: "Tarefas", icon: "T" },
+  { id: "deliverables", label: "Entregas", icon: "E" },
+  { id: "impediments", label: "Impedimentos", icon: "I" },
+  { id: "hours", label: "Horas", icon: "H" },
+  { id: "reports", label: "Reports", icon: "R" },
 ];
 
 const today = new Date().toISOString().slice(0, 10);
@@ -140,6 +225,10 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [reports, setReports] = useState<StatusReport[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
+  const [impediments, setImpediments] = useState<Impediment[]>([]);
+  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -248,6 +337,33 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (token && selectedProjectId) {
+      loadProjectDetails(selectedProjectId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, token]);
+
+  async function loadProjectDetails(projectId: string) {
+    try {
+      const [taskData, deliverableData, impedimentData, timeEntryData, reportData] =
+        await Promise.all([
+          apiRequest<Task[]>(`/api/v1/operations/projects/${projectId}/tasks`),
+          apiRequest<Deliverable[]>(`/api/v1/operations/projects/${projectId}/deliverables`),
+          apiRequest<Impediment[]>(`/api/v1/operations/projects/${projectId}/impediments`),
+          apiRequest<TimeEntry[]>(`/api/v1/operations/projects/${projectId}/time-entries`),
+          apiRequest<StatusReport[]>(`/api/v1/status-reports/project/${projectId}`),
+        ]);
+      setTasks(taskData);
+      setDeliverables(deliverableData);
+      setImpediments(impedimentData);
+      setTimeEntries(timeEntryData);
+      setReports(reportData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao carregar dados do projeto.");
+    }
+  }
+
   function openSection(section: Section) {
     setActiveSection(section);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -324,6 +440,85 @@ export default function Home() {
     );
   }
 
+  async function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/operations/projects/${selectedProject.id}/tasks`,
+      {
+        title: String(form.get("title")),
+        owner_name: String(form.get("owner_name")),
+        start_date: String(form.get("start_date")),
+        due_date: String(form.get("due_date")),
+        estimated_hours: Number(form.get("estimated_hours") || 0),
+        progress_percent: Number(form.get("progress_percent") || 0),
+        status: String(form.get("status")),
+        priority: String(form.get("priority")),
+        responsible_org: String(form.get("responsible_org")),
+      },
+      "Tarefa salva com regras validadas no backend.",
+    );
+  }
+
+  async function handleDeliverableSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/operations/projects/${selectedProject.id}/deliverables`,
+      {
+        title: String(form.get("title")),
+        acceptance_criteria: String(form.get("acceptance_criteria")),
+        owner_name: String(form.get("owner_name")),
+        due_date: String(form.get("due_date")),
+        actual_date: String(form.get("actual_date") || "") || null,
+        status: String(form.get("status")),
+      },
+      "Entrega salva com criterios de aceite.",
+    );
+  }
+
+  async function handleImpedimentSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/operations/projects/${selectedProject.id}/impediments`,
+      {
+        description: String(form.get("description")),
+        affected_activity: String(form.get("affected_activity")),
+        owner_name: String(form.get("owner_name")),
+        responsible_org: String(form.get("responsible_org")),
+        impact: String(form.get("impact")),
+        opened_at: String(form.get("opened_at")),
+        due_date: String(form.get("due_date")),
+        status: String(form.get("status")),
+        resolution: String(form.get("resolution") || "") || null,
+      },
+      "Impedimento salvo e rastreado.",
+    );
+  }
+
+  async function handleTimeEntrySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/operations/projects/${selectedProject.id}/time-entries`,
+      {
+        task_id: String(form.get("task_id") || "") || null,
+        user_name: String(form.get("user_name")),
+        entry_date: String(form.get("entry_date")),
+        hours: Number(form.get("hours") || 0),
+        description: String(form.get("description")),
+        entry_type: String(form.get("entry_type")),
+        approval_status: String(form.get("approval_status")),
+      },
+      "Hora apontada e recalculada pelo backend quando aprovada.",
+    );
+  }
+
   async function submitAndReload(path: string, body: unknown, successMessage: string) {
     setError("");
     setMessage("");
@@ -335,6 +530,9 @@ export default function Home() {
       setModalMode(null);
       setMessage(successMessage);
       await loadData();
+      if (selectedProjectId) {
+        await loadProjectDetails(selectedProjectId);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar dados.");
     }
@@ -392,6 +590,34 @@ export default function Home() {
     setUser(null);
     setProjects([]);
     setReports([]);
+  }
+
+  async function generateReport() {
+    if (!selectedProject) return;
+    await submitAndReload(
+      "/api/v1/status-reports",
+      {
+        project_id: selectedProject.id,
+        period_start: today,
+        period_end: today,
+      },
+      "Status report gerado com dados reais do periodo.",
+    );
+    setActiveSection("reports");
+  }
+
+  async function approveReport(reportId: string) {
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(`/api/v1/status-reports/${reportId}/approve`, { method: "POST" });
+      setMessage("Status report aprovado e preservado no historico.");
+      if (selectedProjectId) {
+        await loadProjectDetails(selectedProjectId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao aprovar report.");
+    }
   }
 
   if (!token) {
@@ -708,6 +934,154 @@ export default function Home() {
             </div>
           </section>
         )}
+
+        {activeSection === "tasks" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Execucao</span>
+                <h2>Tarefas do projeto</h2>
+              </div>
+              <button className="primary-btn" onClick={() => setModalMode("task")} type="button">
+                + Nova tarefa
+              </button>
+            </div>
+            <div className="record-grid">
+              {tasks.map((task) => (
+                <article className="panel record-card" key={task.id}>
+                  <span>{task.priority} · {task.responsible_org}</span>
+                  <h3>{task.title}</h3>
+                  <p>{task.owner_name} · {task.start_date} a {task.due_date}</p>
+                  <div className="progress-track"><span style={{ width: `${task.progress_percent}%` }} /></div>
+                  <small>{task.progress_percent}% · {task.status}</small>
+                </article>
+              ))}
+              {!tasks.length && <EmptyPanel text="Nenhuma tarefa cadastrada para o projeto selecionado." />}
+            </div>
+          </section>
+        )}
+
+        {activeSection === "deliverables" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Aceite</span>
+                <h2>Entregas</h2>
+              </div>
+              <button className="primary-btn" onClick={() => setModalMode("deliverable")} type="button">
+                + Nova entrega
+              </button>
+            </div>
+            <div className="record-grid">
+              {deliverables.map((deliverable) => (
+                <article className="panel record-card" key={deliverable.id}>
+                  <span>{deliverable.status}</span>
+                  <h3>{deliverable.title}</h3>
+                  <p>{deliverable.acceptance_criteria}</p>
+                  <small>{deliverable.owner_name} · prazo {deliverable.due_date}</small>
+                </article>
+              ))}
+              {!deliverables.length && <EmptyPanel text="Nenhuma entrega cadastrada para o projeto selecionado." />}
+            </div>
+          </section>
+        )}
+
+        {activeSection === "impediments" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Bloqueios</span>
+                <h2>Impedimentos</h2>
+              </div>
+              <button className="primary-btn" onClick={() => setModalMode("impediment")} type="button">
+                + Novo impedimento
+              </button>
+            </div>
+            <div className="record-grid">
+              {impediments.map((impediment) => (
+                <article className="panel record-card alert-card" key={impediment.id}>
+                  <span>{impediment.responsible_org} · {impediment.status}</span>
+                  <h3>{impediment.affected_activity}</h3>
+                  <p>{impediment.description}</p>
+                  <small>{impediment.owner_name} · prazo {impediment.due_date}</small>
+                </article>
+              ))}
+              {!impediments.length && <EmptyPanel text="Nenhum impedimento cadastrado para o projeto selecionado." />}
+            </div>
+          </section>
+        )}
+
+        {activeSection === "hours" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Apontamentos</span>
+                <h2>Horas do projeto</h2>
+              </div>
+              <button className="primary-btn" onClick={() => setModalMode("timeEntry")} type="button">
+                + Apontar horas
+              </button>
+            </div>
+            <article className="panel table-panel wide">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Usuario</th>
+                    <th>Horas</th>
+                    <th>Tipo</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {timeEntries.map((entry) => (
+                    <tr key={entry.id}>
+                      <td>{entry.entry_date}</td>
+                      <td>{entry.user_name}</td>
+                      <td>{entry.hours}</td>
+                      <td>{entry.entry_type}</td>
+                      <td>{entry.approval_status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!timeEntries.length && <p className="empty-text">Nenhum apontamento cadastrado.</p>}
+            </article>
+          </section>
+        )}
+
+        {activeSection === "reports" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Governanca</span>
+                <h2>Status reports</h2>
+              </div>
+              <button className="primary-btn" onClick={generateReport} type="button">
+                + Gerar rascunho
+              </button>
+            </div>
+            <div className="report-list">
+              {reports.map((report) => (
+                <article className="panel report-card" key={report.id}>
+                  <div className="panel-header">
+                    <h3>{report.period_start} a {report.period_end}</h3>
+                    <span className={report.status === "approved" ? "status-pill green" : "status-pill yellow"}>
+                      {report.status}
+                    </span>
+                  </div>
+                  <pre>{report.latest_content ?? "Sem conteudo gerado."}</pre>
+                  {report.status !== "approved" && (
+                    <button className="primary-btn" onClick={() => approveReport(report.id)} type="button">
+                      Aprovar report
+                    </button>
+                  )}
+                </article>
+              ))}
+              {!reports.length && <EmptyPanel text="Nenhum status report gerado para o projeto selecionado." />}
+            </div>
+          </section>
+        )}
       </main>
 
       {modalMode && (
@@ -721,6 +1095,11 @@ export default function Home() {
           onMilestoneSubmit={handleMilestoneSubmit}
           onRiskSubmit={handleRiskSubmit}
           onActionSubmit={handleActionSubmit}
+          onTaskSubmit={handleTaskSubmit}
+          onDeliverableSubmit={handleDeliverableSubmit}
+          onImpedimentSubmit={handleImpedimentSubmit}
+          onTimeEntrySubmit={handleTimeEntrySubmit}
+          tasks={tasks}
         />
       )}
     </div>
@@ -893,9 +1272,19 @@ function ProjectTable({
   );
 }
 
+function EmptyPanel({ text }: { text: string }) {
+  return (
+    <article className="panel record-card">
+      <h3>{text}</h3>
+      <p>Use o botao de cadastro para alimentar o projeto e recalcular os indicadores.</p>
+    </article>
+  );
+}
+
 function DataModal({
   mode,
   projects,
+  tasks,
   selectedProjectId,
   setSelectedProjectId,
   close,
@@ -903,9 +1292,14 @@ function DataModal({
   onMilestoneSubmit,
   onRiskSubmit,
   onActionSubmit,
+  onTaskSubmit,
+  onDeliverableSubmit,
+  onImpedimentSubmit,
+  onTimeEntrySubmit,
 }: {
   mode: ModalMode;
   projects: Project[];
+  tasks: Task[];
   selectedProjectId: string;
   setSelectedProjectId: (projectId: string) => void;
   close: () => void;
@@ -913,6 +1307,10 @@ function DataModal({
   onMilestoneSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onRiskSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onActionSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onTaskSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDeliverableSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onImpedimentSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onTimeEntrySubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const title =
     mode === "project"
@@ -921,7 +1319,15 @@ function DataModal({
         ? "Novo marco"
         : mode === "risk"
           ? "Novo risco"
-          : "Nova acao";
+          : mode === "action"
+            ? "Nova acao"
+            : mode === "task"
+              ? "Nova tarefa"
+              : mode === "deliverable"
+                ? "Nova entrega"
+                : mode === "impediment"
+                  ? "Novo impedimento"
+                  : "Apontar horas";
   const submitHandler =
     mode === "project"
       ? onProjectSubmit
@@ -929,7 +1335,15 @@ function DataModal({
         ? onMilestoneSubmit
         : mode === "risk"
           ? onRiskSubmit
-          : onActionSubmit;
+          : mode === "action"
+            ? onActionSubmit
+            : mode === "task"
+              ? onTaskSubmit
+              : mode === "deliverable"
+                ? onDeliverableSubmit
+                : mode === "impediment"
+                  ? onImpedimentSubmit
+                  : onTimeEntrySubmit;
 
   return (
     <div className="modal">
@@ -956,6 +1370,10 @@ function DataModal({
           {mode === "milestone" && <MilestoneFields />}
           {mode === "risk" && <RiskFields />}
           {mode === "action" && <ActionFields />}
+          {mode === "task" && <TaskFields />}
+          {mode === "deliverable" && <DeliverableFields />}
+          {mode === "impediment" && <ImpedimentFields />}
+          {mode === "timeEntry" && <TimeEntryFields tasks={tasks} />}
           <div className="modal-actions full">
             <button className="secondary-btn" onClick={close} type="button">
               Cancelar
@@ -1114,6 +1532,210 @@ function ActionFields() {
           <option value="in_progress">Em andamento</option>
           <option value="done">Concluido</option>
         </select>
+      </label>
+    </>
+  );
+}
+
+function OrganizationSelect() {
+  return (
+    <select name="responsible_org" defaultValue="maxicon">
+      <option value="maxicon">Maxicon</option>
+      <option value="client">Cliente</option>
+      <option value="sap">SAP</option>
+      <option value="third_party">Terceiro</option>
+    </select>
+  );
+}
+
+function WorkStatusSelect({ defaultValue = "todo" }: { defaultValue?: string }) {
+  return (
+    <select name="status" defaultValue={defaultValue}>
+      <option value="todo">A fazer</option>
+      <option value="in_progress">Em andamento</option>
+      <option value="blocked">Bloqueado</option>
+      <option value="done">Concluido</option>
+      <option value="cancelled">Cancelado</option>
+    </select>
+  );
+}
+
+function TaskFields() {
+  return (
+    <>
+      <label>
+        Titulo
+        <input name="title" required placeholder="Configurar integracao fiscal" />
+      </label>
+      <label>
+        Responsavel
+        <input name="owner_name" required placeholder="Consultor Maxicon" />
+      </label>
+      <label>
+        Inicio
+        <input name="start_date" required type="date" defaultValue={today} />
+      </label>
+      <label>
+        Prazo
+        <input name="due_date" required type="date" defaultValue={nextMonth} />
+      </label>
+      <label>
+        Estimativa (h)
+        <input name="estimated_hours" min="0" type="number" defaultValue="8" />
+      </label>
+      <label>
+        Progresso (%)
+        <input name="progress_percent" min="0" max="100" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Prioridade
+        <select name="priority" defaultValue="medium">
+          <option value="low">Baixa</option>
+          <option value="medium">Media</option>
+          <option value="high">Alta</option>
+          <option value="critical">Critica</option>
+        </select>
+      </label>
+      <label>
+        Organizacao
+        <OrganizationSelect />
+      </label>
+      <label className="full">
+        Status
+        <WorkStatusSelect />
+      </label>
+    </>
+  );
+}
+
+function DeliverableFields() {
+  return (
+    <>
+      <label>
+        Entrega
+        <input name="title" required placeholder="Homologacao fiscal assinada" />
+      </label>
+      <label>
+        Responsavel
+        <input name="owner_name" required placeholder="Gerente do projeto" />
+      </label>
+      <label>
+        Prazo
+        <input name="due_date" required type="date" defaultValue={nextMonth} />
+      </label>
+      <label>
+        Data real
+        <input name="actual_date" type="date" />
+      </label>
+      <label className="full">
+        Status
+        <WorkStatusSelect />
+      </label>
+      <label className="full">
+        Criterio de aceite
+        <textarea name="acceptance_criteria" required rows={3} placeholder="Evidencia, aprovador e criterio objetivo de aceite." />
+      </label>
+    </>
+  );
+}
+
+function ImpedimentFields() {
+  return (
+    <>
+      <label>
+        Atividade afetada
+        <input name="affected_activity" required placeholder="Validacao SAP" />
+      </label>
+      <label>
+        Responsavel
+        <input name="owner_name" required placeholder="Responsavel pelo desbloqueio" />
+      </label>
+      <label>
+        Organizacao
+        <OrganizationSelect />
+      </label>
+      <label>
+        Aberto em
+        <input name="opened_at" required type="date" defaultValue={today} />
+      </label>
+      <label>
+        Prazo
+        <input name="due_date" required type="date" defaultValue={nextMonth} />
+      </label>
+      <label>
+        Status
+        <WorkStatusSelect defaultValue="blocked" />
+      </label>
+      <label className="full">
+        Descricao
+        <textarea name="description" required rows={3} placeholder="O que impede o andamento." />
+      </label>
+      <label className="full">
+        Impacto
+        <textarea name="impact" required rows={3} placeholder="Impacto em prazo, custo ou qualidade." />
+      </label>
+      <label className="full">
+        Solucao
+        <textarea name="resolution" rows={2} placeholder="Obrigatoria se o impedimento estiver concluido." />
+      </label>
+    </>
+  );
+}
+
+function TimeEntryFields({ tasks }: { tasks: Task[] }) {
+  return (
+    <>
+      <label className="full">
+        Tarefa
+        <select name="task_id" defaultValue="">
+          <option value="">Sem tarefa vinculada</option>
+          {tasks.map((task) => (
+            <option key={task.id} value={task.id}>
+              {task.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Usuario
+        <input name="user_name" required placeholder="Consultor Maxicon" />
+      </label>
+      <label>
+        Data
+        <input name="entry_date" required type="date" defaultValue={today} />
+      </label>
+      <label>
+        Horas
+        <input name="hours" required min="0.25" max="24" step="0.25" type="number" defaultValue="1" />
+      </label>
+      <label>
+        Tipo
+        <select name="entry_type" defaultValue="billable">
+          <option value="billable">Rentavel</option>
+          <option value="non_billable">Nao rentavel</option>
+          <option value="internal">Interna</option>
+          <option value="support">Suporte</option>
+          <option value="rework">Retrabalho</option>
+          <option value="meeting">Reuniao</option>
+          <option value="training">Treinamento</option>
+          <option value="travel">Deslocamento</option>
+          <option value="implementation">Implantacao</option>
+          <option value="development">Desenvolvimento</option>
+        </select>
+      </label>
+      <label className="full">
+        Status de aprovacao
+        <select name="approval_status" defaultValue="submitted">
+          <option value="draft">Rascunho</option>
+          <option value="submitted">Enviado</option>
+          <option value="approved">Aprovado</option>
+          <option value="rejected">Rejeitado</option>
+          <option value="corrected">Corrigido</option>
+        </select>
+      </label>
+      <label className="full">
+        Descricao
+        <textarea name="description" required rows={3} placeholder="Atividade executada e evidencia." />
       </label>
     </>
   );

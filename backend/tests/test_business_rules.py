@@ -140,3 +140,52 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     )
     assert approve_response.status_code == 200
     assert approve_response.json()["status"] == "approved"
+
+
+def test_backend_rejects_invalid_operational_rules(client: TestClient) -> None:
+    headers = authenticate(client)
+    project_id = create_project(client, headers)
+
+    invalid_deliverable = client.post(
+        f"/api/v1/operations/projects/{project_id}/deliverables",
+        headers=headers,
+        json={
+            "title": "Entrega concluida sem data",
+            "acceptance_criteria": "Aceite formal registrado",
+            "owner_name": "Gerente",
+            "due_date": "2026-07-10",
+            "status": "done",
+        },
+    )
+    assert invalid_deliverable.status_code == 422
+
+    invalid_impediment = client.post(
+        f"/api/v1/operations/projects/{project_id}/impediments",
+        headers=headers,
+        json={
+            "description": "Dependencia externa",
+            "affected_activity": "Homologacao",
+            "owner_name": "Cliente",
+            "responsible_org": "client",
+            "impact": "Bloqueia aceite",
+            "opened_at": "2026-07-10",
+            "due_date": "2026-07-09",
+            "status": "blocked",
+        },
+    )
+    assert invalid_impediment.status_code == 422
+
+    invalid_time_entry = client.post(
+        f"/api/v1/operations/projects/{project_id}/time-entries",
+        headers=headers,
+        json={
+            "task_id": "00000000-0000-0000-0000-000000000000",
+            "user_name": "Consultor",
+            "entry_date": "2026-07-08",
+            "hours": 2,
+            "description": "Apontamento em tarefa inexistente",
+            "entry_type": "billable",
+            "approval_status": "approved",
+        },
+    )
+    assert invalid_time_entry.status_code == 404

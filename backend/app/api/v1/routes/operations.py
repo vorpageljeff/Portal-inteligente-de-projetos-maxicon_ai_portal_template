@@ -142,8 +142,10 @@ def create_time_entry(
 ) -> TimeEntry:
     project = require_project(project_id, db)
     ensure_project_open(project)
-    if payload.task_id and not db.get(Task, payload.task_id):
-        raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
+    if payload.task_id:
+        task = db.get(Task, payload.task_id)
+        if not task or task.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Tarefa nao encontrada no projeto.")
     entry = TimeEntry(project_id=project_id, **payload.model_dump())
     db.add(entry)
     if entry.approval_status == ApprovalStatus.APPROVED:
