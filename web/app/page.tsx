@@ -94,7 +94,7 @@ const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL;
 const apiBaseUrl =
   configuredApiUrl && !configuredApiUrl.includes("SUA-API-DO-RENDER")
     ? configuredApiUrl
-    : "https://maxicon-ai-portal-api.onrender.com";
+    : "";
 
 const navItems: Array<{ id: Section; label: string; icon: string }> = [
   { id: "overview", label: "Visao geral", icon: "⌂" },
