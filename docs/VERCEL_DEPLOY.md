@@ -12,6 +12,14 @@ Publicar o frontend Next.js no plano gratuito da Vercel, sem criar serviço web 
 - Install Command: `npm ci`
 - Build Command: `npm run build`
 
+Se a Vercel detectar Python ou mostrar erro de entrypoint Python, o projeto foi criado apontando para a raiz do monorepo. Corrija em:
+
+```text
+Settings > Build and Deployment > Root Directory > web
+```
+
+Depois faça um novo deploy.
+
 ## Variáveis de ambiente
 
 Configure:
