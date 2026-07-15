@@ -1,0 +1,13 @@
+Leia integralmente o arquivo CODEX_EXECUTE_TUDO.md.
+
+Depois:
+1. Analise todo o repositório.
+2. Crie docs/IMPLEMENTATION_PLAN.md.
+3. Corrija o setup existente.
+4. Implemente todas as fases na ordem definida.
+5. Execute testes, lint, tipagem e builds a cada fase.
+6. Prepare e valide o render.yaml.
+7. Faça commit e push apenas se o repositório remoto estiver autorizado.
+8. Faça o deploy no Render apenas se houver autenticação e autorização disponíveis.
+9. Não declare sucesso sem validar URLs e logs.
+10. Entregue o relatório final exigido no documento.

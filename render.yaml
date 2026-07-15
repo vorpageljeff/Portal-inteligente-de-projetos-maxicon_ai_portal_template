@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: maxicon-ai-portal-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    healthCheckPath: /health
+    startCommand: alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maxicon-ai-portal-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        value: https://maxicon-ai-portal-web.onrender.com
+      - key: AI_PROVIDER
+        value: mock
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 60
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: 7
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SECRET_KEY
+        generateValue: true
+  - type: web
+    name: maxicon-ai-portal-web
+    runtime: node
+    rootDir: web
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://maxicon-ai-portal-api.onrender.com
+databases:
+  - name: maxicon-ai-portal-db
+    databaseName: project_portal
+    user: project_portal
