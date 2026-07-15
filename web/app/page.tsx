@@ -173,8 +173,22 @@ export default function Home() {
       },
     });
     if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(payload?.detail ?? "Nao foi possivel completar a operacao.");
+      const rawBody = await response.text().catch(() => "");
+      let message = rawBody || response.statusText || "Nao foi possivel completar a operacao.";
+      try {
+        const payload = JSON.parse(rawBody);
+        if (Array.isArray(payload?.detail)) {
+          message = payload.detail
+            .map((item: { msg?: string }) => item.msg)
+            .filter(Boolean)
+            .join("; ");
+        } else if (payload?.detail) {
+          message = String(payload.detail);
+        }
+      } catch {
+        // Keep the raw response body when the proxy/backend returns non-JSON.
+      }
+      throw new Error(`Erro ${response.status}: ${message}`);
     }
     return response.json() as Promise<T>;
   }
