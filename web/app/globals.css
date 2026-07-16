@@ -516,6 +516,37 @@ textarea {
   margin: 0;
 }
 
+.weekly-bars {
+  display: grid;
+  gap: 12px;
+}
+
+.weekly-bars div {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.weekly-bars span {
+  color: #c2cce0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekly-bars strong {
+  color: #ffffff;
+}
+
+.weekly-bars i {
+  background: linear-gradient(90deg, var(--blue-600), var(--cyan));
+  border-radius: 999px;
+  display: block;
+  grid-column: 1 / -1;
+  height: 8px;
+}
+
 .weekly-attention {
   border-top: 3px solid var(--yellow);
 }

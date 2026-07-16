@@ -8,6 +8,7 @@ from app.models.operations import (
     Organization,
     Priority,
     ReportStatus,
+    StatusCycleStatus,
     TimeEntryType,
     WorkStatus,
 )
@@ -109,10 +110,35 @@ class TimeEntryRead(TimeEntryCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class StatusCycleCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=180)
+    meeting_date: date
+    period_start: date
+    period_end: date
+    status: StatusCycleStatus = StatusCycleStatus.COLLECTING
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_period(self):
+        if self.period_end < self.period_start:
+            raise ValueError("O periodo final nao pode ser anterior ao inicial.")
+        if self.meeting_date < self.period_start:
+            raise ValueError("A reuniao nao pode ser anterior ao inicio do periodo.")
+        return self
+
+
+class StatusCycleRead(StatusCycleCreate):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class WeeklyServiceRequestSummaryCreate(BaseModel):
     period_start: date
     period_end: date
     project_requests: int = Field(default=0, ge=0)
+    cr_requests: int = Field(default=0, ge=0)
     gap_requests: int = Field(default=0, ge=0)
     adjustment_requests: int = Field(default=0, ge=0)
     open_requests: int = Field(default=0, ge=0)
@@ -133,7 +159,12 @@ class WeeklyServiceRequestSummaryCreate(BaseModel):
     def validate_summary(self):
         if self.period_end < self.period_start:
             raise ValueError("O periodo final nao pode ser anterior ao inicial.")
-        total = self.project_requests + self.gap_requests + self.adjustment_requests
+        total = (
+            self.project_requests
+            + self.cr_requests
+            + self.gap_requests
+            + self.adjustment_requests
+        )
         for field_name in (
             "open_requests",
             "completed_requests",

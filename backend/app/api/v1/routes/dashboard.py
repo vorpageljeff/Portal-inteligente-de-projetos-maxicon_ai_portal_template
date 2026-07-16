@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.models.operations import (
     Deliverable,
     Impediment,
+    StatusCycle,
     Task,
     TimeEntry,
     WeeklyServiceRequestSummary,
@@ -39,6 +40,7 @@ from app.schemas.dashboard import (
     PortfolioPoint,
     RiskCreate,
     RiskRead,
+    WeeklyStatusBreakdown,
     WeeklyStatusHours,
     WeeklyStatusItem,
     WeeklyStatusMonitoring,
@@ -237,9 +239,21 @@ def executive_dashboard(db: DbSession, _: CurrentUser) -> DashboardSummary:
 
 
 @router.get("/weekly-status/{project_id}", response_model=WeeklyStatusSummary)
-def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> WeeklyStatusSummary:
+def weekly_status(
+    project_id: uuid.UUID,
+    db: DbSession,
+    _: CurrentUser,
+    status_cycle_id: uuid.UUID | None = None,
+) -> WeeklyStatusSummary:
     project = require_project(project_id, db)
-    period_start, period_end = current_week()
+    cycle = None
+    if status_cycle_id:
+        cycle = db.get(StatusCycle, status_cycle_id)
+        if not cycle or cycle.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Ciclo de status nao encontrado.")
+    period_start, period_end = (
+        (cycle.period_start, cycle.period_end) if cycle else current_week()
+    )
     today = date.today()
     tasks = list(db.scalars(select(Task).where(Task.project_id == project_id)))
     deliverables = list(db.scalars(select(Deliverable).where(Deliverable.project_id == project_id)))
@@ -249,10 +263,33 @@ def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> Weekl
     risks = list(db.scalars(select(Risk).where(Risk.project_id == project_id)))
     actions = list(db.scalars(select(ActionItem).where(ActionItem.project_id == project_id)))
 
-    active_deliverables = [
-        item for item in deliverables if item.status not in {WorkStatus.DONE, WorkStatus.CANCELLED}
+    period_tasks = [
+        task for task in tasks if period_start <= task.due_date <= period_end
     ]
-    open_impediments = [item for item in impediments if item.status != WorkStatus.DONE]
+    period_deliverables = [
+        item for item in deliverables if period_start <= item.due_date <= period_end
+    ]
+    period_time_entries = [
+        entry for entry in time_entries if period_start <= entry.entry_date <= period_end
+    ]
+    period_milestones = [
+        item for item in milestones if period_start <= item.due_date <= period_end
+    ]
+    period_actions = [
+        item for item in actions if period_start <= item.due_date <= period_end
+    ]
+    active_deliverables = [
+        item
+        for item in period_deliverables
+        if item.status not in {WorkStatus.DONE, WorkStatus.CANCELLED}
+    ]
+    open_impediments = [
+        item
+        for item in impediments
+        if item.status != WorkStatus.DONE
+        and item.opened_at <= period_end
+        and (item.closed_at is None or item.closed_at.date() >= period_start)
+    ]
     critical_risks = [
         risk
         for risk in risks
@@ -260,16 +297,52 @@ def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> Weekl
     ]
     late_tasks = [
         task
-        for task in tasks
-        if task.status != WorkStatus.DONE and task.due_date < today
+        for task in period_tasks
+        if task.status != WorkStatus.DONE and task.due_date <= period_end
     ]
-    approved_hours = [entry for entry in time_entries if entry.approval_status.value == "approved"]
+    approved_hours = [
+        entry for entry in period_time_entries if entry.approval_status.value == "approved"
+    ]
     executed_hours = sum(entry.hours for entry in approved_hours)
     billable_hours = sum(
         entry.hours for entry in approved_hours if entry.entry_type.value == "billable"
     )
+    outside_project_hours = sum(
+        entry.hours
+        for entry in approved_hours
+        if entry.entry_type.value
+        in {"non_billable", "internal", "support", "rework", "meeting", "training"}
+    )
+    travel_hours = sum(
+        entry.hours for entry in approved_hours if entry.entry_type.value == "travel"
+    )
+    hours_by_professional = sorted(
+        {
+            entry.user_name: sum(
+                item.hours for item in approved_hours if item.user_name == entry.user_name
+            )
+            for entry in approved_hours
+        }.items(),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    approved_project_hours = [
+        entry for entry in time_entries if entry.approval_status.value == "approved"
+    ]
+    months = sorted({entry.entry_date.strftime("%Y-%m") for entry in approved_project_hours})
+    hours_by_month = [
+        (
+            month,
+            sum(
+                entry.hours
+                for entry in approved_project_hours
+                if entry.entry_date.strftime("%Y-%m") == month
+            ),
+        )
+        for month in months[-8:]
+    ]
     billable_rate = round((billable_hours / executed_hours) * 100) if executed_hours else 0
-    expected = expected_progress(project, today)
+    expected = expected_progress(project, period_end)
     progress_gap = round(project.progress_percent - expected, 1)
     health_label, health_percent = health_from_weekly_status(
         progress_gap=progress_gap,
@@ -289,6 +362,11 @@ def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> Weekl
             WeeklyStatusMonitoring(
                 label="Solicitacoes de projeto",
                 value=str(request_summary.project_requests),
+                tone="neutral",
+            ),
+            WeeklyStatusMonitoring(
+                label="CRs",
+                value=str(request_summary.cr_requests),
                 tone="neutral",
             ),
             WeeklyStatusMonitoring(
@@ -400,8 +478,19 @@ def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> Weekl
             executed=executed_hours or project.actual_hours,
             balance=project.contracted_hours - (executed_hours or project.actual_hours),
             billable_rate=billable_rate,
+            exceeded=max((executed_hours or project.actual_hours) - project.contracted_hours, 0),
+            outside_project=outside_project_hours,
+            travel=travel_hours,
         ),
         monitoring=monitoring,
+        hours_by_professional=[
+            WeeklyStatusBreakdown(label=name, value=hours)
+            for name, hours in hours_by_professional[:8]
+        ],
+        hours_by_month=[
+            WeeklyStatusBreakdown(label=month, value=hours)
+            for month, hours in hours_by_month
+        ],
         deliverables_in_progress=[
             WeeklyStatusItem(
                 title=item.title,
@@ -420,7 +509,7 @@ def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> Weekl
                 due_date=item.due_date,
                 progress_percent=None,
             )
-            for item in actions
+            for item in period_actions
             if item.status != ActionStatus.DONE
         ][:5],
         milestones=[
@@ -431,7 +520,7 @@ def weekly_status(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> Weekl
                 due_date=item.due_date,
                 progress_percent=None,
             )
-            for item in milestones[:6]
+            for item in period_milestones[:6]
         ],
         attention_points=attention_points,
     )

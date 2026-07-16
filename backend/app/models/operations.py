@@ -60,6 +60,14 @@ class ReportStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 
+class StatusCycleStatus(str, enum.Enum):
+    COLLECTING = "collecting"
+    READY = "ready"
+    PRESENTED = "presented"
+    APPROVED = "approved"
+    ARCHIVED = "archived"
+
+
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -131,6 +139,23 @@ class TimeEntry(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class StatusCycle(Base):
+    __tablename__ = "status_cycles"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), index=True)
+    title: Mapped[str] = mapped_column(String(180))
+    meeting_date: Mapped[date] = mapped_column(Date, index=True)
+    period_start: Mapped[date] = mapped_column(Date, index=True)
+    period_end: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[StatusCycleStatus] = mapped_column(
+        Enum(StatusCycleStatus),
+        default=StatusCycleStatus.COLLECTING,
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class WeeklyServiceRequestSummary(Base):
     __tablename__ = "weekly_service_request_summaries"
 
@@ -139,6 +164,7 @@ class WeeklyServiceRequestSummary(Base):
     period_start: Mapped[date] = mapped_column(Date, index=True)
     period_end: Mapped[date] = mapped_column(Date, index=True)
     project_requests: Mapped[int] = mapped_column(Integer, default=0)
+    cr_requests: Mapped[int] = mapped_column(Integer, default=0)
     gap_requests: Mapped[int] = mapped_column(Integer, default=0)
     adjustment_requests: Mapped[int] = mapped_column(Integer, default=0)
     open_requests: Mapped[int] = mapped_column(Integer, default=0)
@@ -158,7 +184,12 @@ class WeeklyServiceRequestSummary(Base):
 
     @property
     def total_requests(self) -> int:
-        return self.project_requests + self.gap_requests + self.adjustment_requests
+        return (
+            self.project_requests
+            + self.cr_requests
+            + self.gap_requests
+            + self.adjustment_requests
+        )
 
 
 class StatusReport(Base):

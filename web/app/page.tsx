@@ -24,6 +24,7 @@ type ModalMode =
   | "impediment"
   | "timeEntry"
   | "serviceRequests"
+  | "statusCycle"
   | null;
 type AuthMode = "login" | "bootstrap";
 
@@ -151,12 +152,25 @@ type TimeEntry = {
   approval_status: "draft" | "submitted" | "approved" | "rejected" | "corrected";
 };
 
+type StatusCycle = {
+  id: string;
+  project_id: string;
+  title: string;
+  meeting_date: string;
+  period_start: string;
+  period_end: string;
+  status: "collecting" | "ready" | "presented" | "approved" | "archived";
+  notes?: string | null;
+  created_at: string;
+};
+
 type ServiceRequestSummary = {
   id: string;
   project_id: string;
   period_start: string;
   period_end: string;
   project_requests: number;
+  cr_requests: number;
   gap_requests: number;
   adjustment_requests: number;
   open_requests: number;
@@ -203,8 +217,13 @@ type WeeklyStatus = {
     executed: number;
     balance: number;
     billable_rate: number;
+    exceeded: number;
+    outside_project: number;
+    travel: number;
   };
   monitoring: Array<{ label: string; value: string; tone: string }>;
+  hours_by_professional: Array<{ label: string; value: number }>;
+  hours_by_month: Array<{ label: string; value: number }>;
   deliverables_in_progress: WeeklyStatusItem[];
   next_steps: WeeklyStatusItem[];
   milestones: WeeklyStatusItem[];
@@ -310,6 +329,7 @@ const labels: Record<string, string> = {
   rejected: "Rejeitado",
   corrected: "Corrigido",
   collecting: "Em coleta",
+  ready: "Pronto",
   in_review: "Em revisao",
   presented: "Apresentado",
   archived: "Arquivado",
@@ -384,6 +404,8 @@ export default function Home() {
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [impediments, setImpediments] = useState<Impediment[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [statusCycles, setStatusCycles] = useState<StatusCycle[]>([]);
+  const [selectedStatusCycleId, setSelectedStatusCycleId] = useState("");
   const [serviceRequestSummaries, setServiceRequestSummaries] = useState<ServiceRequestSummary[]>([]);
   const [weeklyStatus, setWeeklyStatus] = useState<WeeklyStatus | null>(emptyWeeklyStatus);
   const [token, setToken] = useState("");
@@ -395,6 +417,8 @@ export default function Home() {
   const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
+  const selectedStatusCycle =
+    statusCycles.find((cycle) => cycle.id === selectedStatusCycleId) ?? statusCycles[0];
   const totalHours = useMemo(
     () => projects.reduce((total, project) => total + project.actual_hours, 0),
     [projects],
@@ -500,10 +524,21 @@ export default function Home() {
       loadProjectDetails(selectedProjectId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProjectId, token]);
+  }, [selectedProjectId, selectedStatusCycleId, token]);
 
-  async function loadProjectDetails(projectId: string) {
+  async function loadProjectDetails(projectId: string, statusCycleId = selectedStatusCycleId) {
     try {
+      const cycleData = await apiRequest<StatusCycle[]>(
+        `/api/v1/operations/projects/${projectId}/status-cycles`,
+      );
+      const effectiveCycleId = cycleData.some((cycle) => cycle.id === statusCycleId)
+        ? statusCycleId
+        : cycleData[0]?.id ?? "";
+      setStatusCycles(cycleData);
+      if (effectiveCycleId !== selectedStatusCycleId) {
+        setSelectedStatusCycleId(effectiveCycleId);
+      }
+      const cycleQuery = effectiveCycleId ? `?status_cycle_id=${effectiveCycleId}` : "";
       const [
         taskData,
         deliverableData,
@@ -519,7 +554,7 @@ export default function Home() {
           apiRequest<Impediment[]>(`/api/v1/operations/projects/${projectId}/impediments`),
           apiRequest<TimeEntry[]>(`/api/v1/operations/projects/${projectId}/time-entries`),
           apiRequest<StatusReport[]>(`/api/v1/status-reports/project/${projectId}`),
-          apiRequest<WeeklyStatus>(`/api/v1/dashboard/weekly-status/${projectId}`),
+          apiRequest<WeeklyStatus>(`/api/v1/dashboard/weekly-status/${projectId}${cycleQuery}`),
           apiRequest<ServiceRequestSummary[]>(
             `/api/v1/operations/projects/${projectId}/service-request-summaries`,
           ),
@@ -728,6 +763,7 @@ export default function Home() {
         period_start: String(form.get("period_start")),
         period_end: String(form.get("period_end")),
         project_requests: Number(form.get("project_requests") || 0),
+        cr_requests: Number(form.get("cr_requests") || 0),
         gap_requests: Number(form.get("gap_requests") || 0),
         adjustment_requests: Number(form.get("adjustment_requests") || 0),
         open_requests: Number(form.get("open_requests") || 0),
@@ -745,6 +781,24 @@ export default function Home() {
         highlight_impact: String(form.get("highlight_impact") || "") || null,
       },
       "Resumo semanal de solicitacoes salvo e conectado ao dashboard.",
+    );
+  }
+
+  async function handleStatusCycleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/operations/projects/${selectedProject.id}/status-cycles`,
+      {
+        title: String(form.get("title")),
+        meeting_date: String(form.get("meeting_date")),
+        period_start: String(form.get("period_start")),
+        period_end: String(form.get("period_end")),
+        status: String(form.get("status")),
+        notes: String(form.get("notes") || "") || null,
+      },
+      "Ciclo de status criado e periodo aplicado ao dashboard.",
     );
   }
 
@@ -819,16 +873,20 @@ export default function Home() {
     setUser(null);
     setProjects([]);
     setReports([]);
+    setStatusCycles([]);
+    setSelectedStatusCycleId("");
   }
 
   async function generateReport() {
     if (!selectedProject) return;
+    const periodStart = selectedStatusCycle?.period_start ?? today;
+    const periodEnd = selectedStatusCycle?.period_end ?? today;
     await submitAndReload(
       "/api/v1/status-reports",
       {
         project_id: selectedProject.id,
-        period_start: today,
-        period_end: today,
+        period_start: periodStart,
+        period_end: periodEnd,
       },
       "Status report gerado com dados reais do periodo.",
     );
@@ -946,13 +1004,22 @@ export default function Home() {
 
           <div className="topbar-actions">
             <label className="period-select">
-              <span>Periodo</span>
-              <select defaultValue="current">
-                <option value="current">12 a 18 de maio de 2025</option>
-                <option value="previous">05 a 11 de maio de 2025</option>
-                <option value="month">Maio de 2025</option>
+              <span>Ciclo de status</span>
+              <select
+                value={selectedStatusCycleId}
+                onChange={(event) => setSelectedStatusCycleId(event.target.value)}
+              >
+                <option value="">Semana atual sem ciclo</option>
+                {statusCycles.map((cycle) => (
+                  <option key={cycle.id} value={cycle.id}>
+                    {cycle.title} - {formatPeriodBR(cycle.period_start, cycle.period_end)}
+                  </option>
+                ))}
               </select>
             </label>
+            <button className="secondary-btn" onClick={() => setModalMode("statusCycle")} type="button">
+              + Ciclo
+            </button>
             <button className="icon-btn" onClick={loadData} type="button" aria-label="Atualizar">
               ♧<b>{dashboard.actions.filter((action) => action.status !== "done").length}</b>
             </button>
@@ -1098,7 +1165,10 @@ export default function Home() {
                 + Lancar numeros
               </button>
             </div>
-            <ServiceRequestSummaryPanel summaries={serviceRequestSummaries} />
+            <ServiceRequestSummaryPanel
+              selectedStatusCycle={selectedStatusCycle}
+              summaries={serviceRequestSummaries}
+            />
           </section>
         )}
 
@@ -1375,6 +1445,7 @@ export default function Home() {
           mode={modalMode}
           projects={projects}
           selectedProjectId={selectedProject?.id ?? ""}
+          selectedStatusCycle={selectedStatusCycle}
           setSelectedProjectId={setSelectedProjectId}
           close={() => setModalMode(null)}
           onProjectSubmit={handleProjectSubmit}
@@ -1386,6 +1457,7 @@ export default function Home() {
           onImpedimentSubmit={handleImpedimentSubmit}
           onTimeEntrySubmit={handleTimeEntrySubmit}
           onServiceRequestSummarySubmit={handleServiceRequestSummarySubmit}
+          onStatusCycleSubmit={handleStatusCycleSubmit}
           tasks={tasks}
         />
       )}
@@ -1499,7 +1571,27 @@ function WeeklyStatusDashboard({ status }: { status: WeeklyStatus }) {
           <div><span>Executadas</span><strong>{Math.round(status.hours.executed)}h</strong></div>
           <div><span>Saldo</span><strong>{Math.round(status.hours.balance)}h</strong></div>
           <div><span>Rentaveis</span><strong>{status.hours.billable_rate}%</strong></div>
+          <div><span>Excedentes</span><strong>{Math.round(status.hours.exceeded)}h</strong></div>
+          <div><span>Fora do projeto</span><strong>{Math.round(status.hours.outside_project)}h</strong></div>
+          <div><span>Deslocamento</span><strong>{Math.round(status.hours.travel)}h</strong></div>
         </div>
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header">
+          <h3>Horas por profissional</h3>
+        </div>
+        <WeeklyBreakdown
+          items={status.hours_by_professional}
+          empty="Sem horas aprovadas no periodo."
+        />
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header">
+          <h3>Consumo mensal</h3>
+        </div>
+        <WeeklyBreakdown items={status.hours_by_month} empty="Sem historico de horas." />
       </article>
 
       <article className="panel weekly-list">
@@ -1532,6 +1624,30 @@ function WeeklyStatusDashboard({ status }: { status: WeeklyStatus }) {
         ))}
       </article>
     </section>
+  );
+}
+
+function WeeklyBreakdown({
+  empty,
+  items,
+}: {
+  empty: string;
+  items: Array<{ label: string; value: number }>;
+}) {
+  if (!items.length) {
+    return <p className="empty-text">{empty}</p>;
+  }
+  const maxValue = Math.max(...items.map((item) => item.value), 1);
+  return (
+    <div className="weekly-bars">
+      {items.map((item) => (
+        <div key={item.label}>
+          <span>{item.label}</span>
+          <strong>{Math.round(item.value)}h</strong>
+          <i style={{ width: `${Math.max((item.value / maxValue) * 100, 6)}%` }} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1683,8 +1799,21 @@ function EmptyPanel({ text }: { text: string }) {
   );
 }
 
-function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSummary[] }) {
-  const latest = summaries[0];
+function ServiceRequestSummaryPanel({
+  selectedStatusCycle,
+  summaries,
+}: {
+  selectedStatusCycle?: StatusCycle;
+  summaries: ServiceRequestSummary[];
+}) {
+  const latest =
+    (selectedStatusCycle
+      ? summaries.find(
+          (summary) =>
+            summary.period_start === selectedStatusCycle.period_start &&
+            summary.period_end === selectedStatusCycle.period_end,
+        )
+      : undefined) ?? summaries[0];
   if (!latest) {
     return (
       <div className="record-grid">
@@ -1696,6 +1825,7 @@ function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSu
   const cards = [
     ["Total", latest.total_requests],
     ["Projeto", latest.project_requests],
+    ["CRs", latest.cr_requests],
     ["GAP", latest.gap_requests],
     ["Ajustes", latest.adjustment_requests],
     ["Abertas", latest.open_requests],
@@ -1760,6 +1890,7 @@ function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSu
             <tr>
               <th>Periodo</th>
               <th>Total</th>
+              <th>CRs</th>
               <th>Abertas</th>
               <th>Concluidas</th>
               <th>Atrasadas</th>
@@ -1771,6 +1902,7 @@ function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSu
               <tr key={summary.id}>
                 <td>{formatPeriodBR(summary.period_start, summary.period_end)}</td>
                 <td>{summary.total_requests}</td>
+                <td>{summary.cr_requests}</td>
                 <td>{summary.open_requests}</td>
                 <td>{summary.completed_requests}</td>
                 <td>{summary.late_requests}</td>
@@ -1789,6 +1921,7 @@ function DataModal({
   projects,
   tasks,
   selectedProjectId,
+  selectedStatusCycle,
   setSelectedProjectId,
   close,
   onProjectSubmit,
@@ -1800,11 +1933,13 @@ function DataModal({
   onImpedimentSubmit,
   onTimeEntrySubmit,
   onServiceRequestSummarySubmit,
+  onStatusCycleSubmit,
 }: {
   mode: ModalMode;
   projects: Project[];
   tasks: Task[];
   selectedProjectId: string;
+  selectedStatusCycle?: StatusCycle;
   setSelectedProjectId: (projectId: string) => void;
   close: () => void;
   onProjectSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -1816,6 +1951,7 @@ function DataModal({
   onImpedimentSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onTimeEntrySubmit: (event: FormEvent<HTMLFormElement>) => void;
   onServiceRequestSummarySubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onStatusCycleSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const title =
     mode === "project"
@@ -1834,7 +1970,9 @@ function DataModal({
                   ? "Novo impedimento"
                   : mode === "timeEntry"
                     ? "Apontar horas"
-                    : "Solicitacoes da semana";
+                    : mode === "serviceRequests"
+                      ? "Solicitacoes da semana"
+                      : "Ciclo de status";
   const submitHandler =
     mode === "project"
       ? onProjectSubmit
@@ -1852,7 +1990,9 @@ function DataModal({
               ? onImpedimentSubmit
               : mode === "timeEntry"
                 ? onTimeEntrySubmit
-                : onServiceRequestSummarySubmit;
+                : mode === "serviceRequests"
+                  ? onServiceRequestSummarySubmit
+                  : onStatusCycleSubmit;
 
   return (
     <div className="modal">
@@ -1883,7 +2023,10 @@ function DataModal({
           {mode === "deliverable" && <DeliverableFields />}
           {mode === "impediment" && <ImpedimentFields />}
           {mode === "timeEntry" && <TimeEntryFields tasks={tasks} />}
-          {mode === "serviceRequests" && <ServiceRequestSummaryFields />}
+          {mode === "serviceRequests" && (
+            <ServiceRequestSummaryFields selectedStatusCycle={selectedStatusCycle} />
+          )}
+          {mode === "statusCycle" && <StatusCycleFields />}
           <div className="modal-actions full">
             <button className="secondary-btn" onClick={close} type="button">
               Cancelar
@@ -2251,9 +2394,17 @@ function TimeEntryFields({ tasks }: { tasks: Task[] }) {
   );
 }
 
-function ServiceRequestSummaryFields() {
+function StatusCycleFields() {
   return (
     <>
+      <label>
+        Titulo
+        <input name="title" required placeholder="Status semanal Cotrijal" />
+      </label>
+      <label>
+        Data da reuniao
+        <input name="meeting_date" required type="date" defaultValue={today} />
+      </label>
       <label>
         Inicio do periodo
         <input name="period_start" required type="date" defaultValue={today} />
@@ -2262,9 +2413,48 @@ function ServiceRequestSummaryFields() {
         Fim do periodo
         <input name="period_end" required type="date" defaultValue={today} />
       </label>
+      <label className="full">
+        Status
+        <select name="status" defaultValue="collecting">
+          <option value="collecting">Em coleta</option>
+          <option value="ready">Pronto</option>
+          <option value="presented">Apresentado</option>
+          <option value="approved">Aprovado</option>
+          <option value="archived">Arquivado</option>
+        </select>
+      </label>
+      <label className="full">
+        Observacao
+        <textarea name="notes" rows={3} placeholder="Ex.: periodo consolidado por remanejamento da reuniao." />
+      </label>
+    </>
+  );
+}
+
+function ServiceRequestSummaryFields({
+  selectedStatusCycle,
+}: {
+  selectedStatusCycle?: StatusCycle;
+}) {
+  const defaultStart = selectedStatusCycle?.period_start ?? today;
+  const defaultEnd = selectedStatusCycle?.period_end ?? today;
+  return (
+    <>
+      <label>
+        Inicio do periodo
+        <input name="period_start" required type="date" defaultValue={defaultStart} />
+      </label>
+      <label>
+        Fim do periodo
+        <input name="period_end" required type="date" defaultValue={defaultEnd} />
+      </label>
       <label>
         Projeto
         <input name="project_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        CRs
+        <input name="cr_requests" min="0" type="number" defaultValue="0" />
       </label>
       <label>
         GAP

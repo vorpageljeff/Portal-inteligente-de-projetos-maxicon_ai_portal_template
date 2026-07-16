@@ -11,6 +11,7 @@ from app.models.operations import (
     ApprovalStatus,
     Deliverable,
     Impediment,
+    StatusCycle,
     Task,
     TimeEntry,
     TimeEntryType,
@@ -24,6 +25,8 @@ from app.schemas.operations import (
     DeliverableRead,
     ImpedimentCreate,
     ImpedimentRead,
+    StatusCycleCreate,
+    StatusCycleRead,
     TaskCreate,
     TaskRead,
     TimeEntryCreate,
@@ -162,6 +165,39 @@ def create_time_entry(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.get("/projects/{project_id}/status-cycles", response_model=list[StatusCycleRead])
+def list_status_cycles(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[StatusCycle]:
+    require_project(project_id, db)
+    return list(
+        db.scalars(
+            select(StatusCycle)
+            .where(StatusCycle.project_id == project_id)
+            .order_by(StatusCycle.meeting_date.desc(), StatusCycle.created_at.desc())
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/status-cycles",
+    response_model=StatusCycleRead,
+    status_code=201,
+)
+def create_status_cycle(
+    project_id: uuid.UUID,
+    payload: StatusCycleCreate,
+    db: DbSession,
+    user: CurrentUser,
+) -> StatusCycle:
+    require_project(project_id, db)
+    cycle = StatusCycle(project_id=project_id, **payload.model_dump())
+    db.add(cycle)
+    db.flush()
+    audit(db, actor=user, action="create", entity_type="status_cycle", entity_id=str(cycle.id))
+    db.commit()
+    db.refresh(cycle)
+    return cycle
 
 
 @router.get(

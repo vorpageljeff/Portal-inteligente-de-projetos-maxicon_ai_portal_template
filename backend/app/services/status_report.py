@@ -130,6 +130,7 @@ class StatusReportService:
             requests_block = (
                 "Solicitacoes da semana:\n"
                 f"- Projeto: {request_summary.project_requests}\n"
+                f"- CRs: {request_summary.cr_requests}\n"
                 f"- GAP: {request_summary.gap_requests}\n"
                 f"- Ajustes: {request_summary.adjustment_requests}\n"
                 f"- Abertas/concluidas: {request_summary.open_requests}/"

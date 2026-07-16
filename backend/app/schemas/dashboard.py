@@ -109,6 +109,14 @@ class WeeklyStatusHours(BaseModel):
     executed: float
     balance: float
     billable_rate: int
+    exceeded: float = 0
+    outside_project: float = 0
+    travel: float = 0
+
+
+class WeeklyStatusBreakdown(BaseModel):
+    label: str
+    value: float
 
 
 class WeeklyStatusMonitoring(BaseModel):
@@ -133,6 +141,8 @@ class WeeklyStatusSummary(BaseModel):
     health_percent: int
     hours: WeeklyStatusHours
     monitoring: list[WeeklyStatusMonitoring]
+    hours_by_professional: list[WeeklyStatusBreakdown] = []
+    hours_by_month: list[WeeklyStatusBreakdown] = []
     deliverables_in_progress: list[WeeklyStatusItem]
     next_steps: list[WeeklyStatusItem]
     milestones: list[WeeklyStatusItem]

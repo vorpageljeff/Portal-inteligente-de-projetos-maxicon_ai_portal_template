@@ -126,6 +126,7 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
             "period_start": "2026-07-06",
             "period_end": "2026-07-10",
             "project_requests": 7,
+            "cr_requests": 4,
             "gap_requests": 2,
             "adjustment_requests": 3,
             "open_requests": 4,
@@ -144,7 +145,7 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
         },
     )
     assert request_summary_response.status_code == 201
-    assert request_summary_response.json()["total_requests"] == 12
+    assert request_summary_response.json()["total_requests"] == 16
 
     action_response = client.post(
         f"/api/v1/dashboard/projects/{project_id}/actions",
@@ -167,6 +168,21 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert move_action_response.status_code == 200
     assert move_action_response.json()["status"] == "in_progress"
 
+    cycle_response = client.post(
+        f"/api/v1/operations/projects/{project_id}/status-cycles",
+        headers=headers,
+        json={
+            "title": "Status semanal Cotrijal",
+            "meeting_date": "2026-07-11",
+            "period_start": "2026-07-06",
+            "period_end": "2026-07-10",
+            "status": "collecting",
+            "notes": "Periodo ajustado pela reuniao semanal.",
+        },
+    )
+    assert cycle_response.status_code == 201
+    cycle_id = cycle_response.json()["id"]
+
     report_response = client.post(
         "/api/v1/status-reports",
         headers=headers,
@@ -183,6 +199,7 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert "Configurar integracao fiscal" in report["latest_content"]
     assert "Solicitacoes da semana:" in report["latest_content"]
     assert "- Projeto: 7" in report["latest_content"]
+    assert "- CRs: 4" in report["latest_content"]
     assert "#225135" in report["latest_content"]
 
     approve_response = client.post(
@@ -193,18 +210,21 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert approve_response.json()["status"] == "approved"
 
     weekly_response = client.get(
-        f"/api/v1/dashboard/weekly-status/{project_id}",
+        f"/api/v1/dashboard/weekly-status/{project_id}?status_cycle_id={cycle_id}",
         headers=headers,
     )
     assert weekly_response.status_code == 200
     weekly = weekly_response.json()
     assert weekly["project_name"] == "Implantacao Cotrijal"
+    assert weekly["period_start"] == "2026-07-06"
+    assert weekly["period_end"] == "2026-07-10"
     assert weekly["hours"]["executed"] == 4
     assert weekly["hours"]["billable_rate"] == 100
     assert any(
         item["label"] == "Solicitacoes de projeto" and item["value"] == "7"
         for item in weekly["monitoring"]
     )
+    assert any(item["label"] == "CRs" and item["value"] == "4" for item in weekly["monitoring"])
     assert any(
         item["label"] == "Criticas" and item["value"] == "1"
         for item in weekly["monitoring"]
