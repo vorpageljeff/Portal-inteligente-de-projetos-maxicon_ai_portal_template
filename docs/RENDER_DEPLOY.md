@@ -28,6 +28,7 @@ Configure no dashboard do Render:
 
 - `SECRET_KEY`;
 - `AI_API_KEY`, somente quando houver provedor real aprovado.
+- `GEMINI_API_KEY`, quando `AI_PROVIDER=gemini`.
 
 ## Variáveis importantes
 
@@ -35,6 +36,7 @@ Configure no dashboard do Render:
 - `DATABASE_URL`: preenchida pelo banco gerenciado do Render.
 - `CORS_ORIGINS`: depois do deploy web na Vercel, trocar para a URL real da Vercel.
 - `AI_PROVIDER`: usar `mock` enquanto não houver provedor real aprovado.
+- `AI_MODEL`: para Gemini, usar `gemini-3.5-flash` inicialmente.
 
 ## Passos
 

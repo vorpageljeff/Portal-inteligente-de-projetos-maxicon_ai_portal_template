@@ -616,6 +616,35 @@ textarea {
   grid-column: 1 / -1;
 }
 
+.ai-intake-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-intake-panel textarea {
+  min-height: 220px;
+}
+
+.ai-preview-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.85fr) minmax(280px, 0.85fr);
+  margin-top: 16px;
+}
+
+.ai-warning-list {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  padding-top: 14px;
+}
+
+.ai-warning-list p {
+  color: var(--yellow);
+  margin: 0;
+}
+
 .kpi-card,
 .panel {
   background: linear-gradient(145deg, rgba(11, 35, 70, 0.82), rgba(6, 23, 48, 0.72));
@@ -1321,6 +1350,7 @@ td {
 
 @media (max-width: 1320px) {
   .dashboard-grid,
+  .ai-preview-grid,
   .lower-grid,
   .request-summary-layout,
   .weekly-status-grid {

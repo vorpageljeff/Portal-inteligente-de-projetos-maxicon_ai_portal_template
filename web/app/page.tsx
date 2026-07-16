@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Section =
   | "overview"
+  | "ai"
   | "projects"
   | "milestones"
   | "risks"
@@ -190,6 +191,63 @@ type ServiceRequestSummary = {
   created_at: string;
 };
 
+type AiIntakeDraft = {
+  project_name?: string | null;
+  confidence: number;
+  summary: string;
+  status_cycle: {
+    title: string;
+    meeting_date: string;
+    period_start: string;
+    period_end: string;
+    notes?: string | null;
+  };
+  service_requests: {
+    project_requests: number;
+    cr_requests: number;
+    gap_requests: number;
+    adjustment_requests: number;
+    open_requests: number;
+    completed_requests: number;
+    late_requests: number;
+    critical_requests: number;
+    waiting_maxicon: number;
+    waiting_client: number;
+    waiting_sap: number;
+    highlight_number?: string | null;
+    highlight_subject?: string | null;
+    highlight_owner?: string | null;
+    highlight_due_date?: string | null;
+    highlight_status?: string | null;
+    highlight_impact?: string | null;
+  };
+  actions: Array<{
+    title: string;
+    priority: "low" | "medium" | "high";
+    due_date: string;
+    status: "todo" | "in_progress" | "done";
+  }>;
+  risks: Array<{
+    title: string;
+    description?: string | null;
+    severity: "medium" | "high" | "critical";
+    status: "open" | "mitigating" | "closed";
+  }>;
+  time_entries: Array<{
+    user_name: string;
+    entry_date: string;
+    hours: number;
+    description: string;
+    entry_type: TimeEntry["entry_type"];
+  }>;
+  warnings: string[];
+};
+
+type AiIntakePreview = {
+  provider: string;
+  draft: AiIntakeDraft;
+};
+
 type WeeklyStatusItem = {
   title: string;
   status: string;
@@ -268,6 +326,7 @@ const navGroups: Array<{
     description: "Resumo executivo e comunicacao aprovada",
     items: [
       { id: "overview", label: "Dashboard executivo", icon: "D" },
+      { id: "ai", label: "Preencher com IA", icon: "IA" },
       { id: "requests", label: "Solicitacoes semanais", icon: "S" },
       { id: "reports", label: "Reports semanais", icon: "R" },
       { id: "actions", label: "Plano executivo", icon: "A" },
@@ -290,6 +349,7 @@ const navGroups: Array<{
 
 const sectionTitles: Record<Section, string> = {
   overview: "Status Semanal",
+  ai: "Status Semanal",
   reports: "Status Semanal",
   actions: "Status Semanal",
   requests: "Status Semanal",
@@ -415,6 +475,8 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPreview, setAiPreview] = useState<AiIntakePreview | null>(null);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const selectedStatusCycle =
@@ -802,6 +864,51 @@ export default function Home() {
     );
   }
 
+  async function generateAiPreview() {
+    if (!selectedProject) return;
+    setError("");
+    setMessage("");
+    try {
+      const preview = await apiRequest<AiIntakePreview>("/api/v1/ai/intake-preview", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: selectedProject.id,
+          prompt: aiPrompt,
+        }),
+      });
+      setAiPreview(preview);
+      setMessage(
+        preview.provider === "mock"
+          ? "Rascunho mock gerado. Configure Gemini para extracao real."
+          : "Rascunho de IA gerado para revisao.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao gerar rascunho com IA.");
+    }
+  }
+
+  async function applyAiPreview() {
+    if (!selectedProject || !aiPreview) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest("/api/v1/ai/intake-apply", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: selectedProject.id,
+          draft: aiPreview.draft,
+        }),
+      });
+      setMessage("Rascunho aplicado ao portal e dashboard atualizado.");
+      setAiPreview(null);
+      setAiPrompt("");
+      await loadData();
+      await loadProjectDetails(selectedProject.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao aplicar rascunho de IA.");
+    }
+  }
+
   async function submitAndReload(path: string, body: unknown, successMessage: string) {
     setError("");
     setMessage("");
@@ -1151,6 +1258,45 @@ export default function Home() {
               <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
               <ActionPanel actions={dashboard.actions} openActions={() => openSection("actions")} />
             </section>
+          </section>
+        )}
+
+        {activeSection === "ai" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Automacao assistida</span>
+                <h2>Preencher portal com IA</h2>
+              </div>
+              <button
+                className="primary-btn"
+                disabled={aiPrompt.trim().length < 20}
+                onClick={generateAiPreview}
+                type="button"
+              >
+                Gerar rascunho
+              </button>
+            </div>
+            <article className="panel ai-intake-panel">
+              <label className="full">
+                Texto da reuniao, e-mail ou anotacao
+                <textarea
+                  onChange={(event) => setAiPrompt(event.target.value)}
+                  placeholder="Cole aqui o resumo da reuniao, numeros da semana, riscos, acoes e solicitacoes..."
+                  rows={9}
+                  value={aiPrompt}
+                />
+              </label>
+              <p className="empty-text">
+                A IA gera apenas um rascunho. Revise antes de aplicar no banco do portal.
+              </p>
+            </article>
+            {aiPreview && (
+              <AiPreviewPanel
+                applyAiPreview={applyAiPreview}
+                preview={aiPreview}
+              />
+            )}
           </section>
         )}
 
@@ -1796,6 +1942,74 @@ function EmptyPanel({ text }: { text: string }) {
       <h3>{text}</h3>
       <p>Use o botao de cadastro para alimentar o projeto e recalcular os indicadores.</p>
     </article>
+  );
+}
+
+function AiPreviewPanel({
+  applyAiPreview,
+  preview,
+}: {
+  applyAiPreview: () => void;
+  preview: AiIntakePreview;
+}) {
+  const draft = preview.draft;
+  const totalRequests =
+    draft.service_requests.project_requests +
+    draft.service_requests.cr_requests +
+    draft.service_requests.gap_requests +
+    draft.service_requests.adjustment_requests;
+  return (
+    <div className="ai-preview-grid">
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <span className="eyebrow">Provider: {preview.provider}</span>
+            <h3>{draft.status_cycle.title}</h3>
+          </div>
+          <span className="status-pill yellow">{Math.round(draft.confidence * 100)}%</span>
+        </div>
+        <p>{draft.summary}</p>
+        <div className="request-number-grid">
+          <div><span>Reuniao</span><strong>{formatDateBR(draft.status_cycle.meeting_date)}</strong></div>
+          <div><span>Periodo</span><strong>{formatPeriodBR(draft.status_cycle.period_start, draft.status_cycle.period_end)}</strong></div>
+          <div><span>Solicitacoes</span><strong>{totalRequests}</strong></div>
+          <div><span>Horas</span><strong>{Math.round(draft.time_entries.reduce((sum, item) => sum + item.hours, 0))}h</strong></div>
+        </div>
+        {!!draft.warnings.length && (
+          <div className="ai-warning-list">
+            {draft.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
+        )}
+        <button className="primary-btn" onClick={applyAiPreview} type="button">
+          Aplicar rascunho no portal
+        </button>
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header"><h3>Acoes detectadas</h3></div>
+        <WeeklyItems
+          empty="Nenhuma acao detectada."
+          items={draft.actions.map((action) => ({
+            title: action.title,
+            status: action.status,
+            due_date: action.due_date,
+          }))}
+        />
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header"><h3>Riscos detectados</h3></div>
+        <WeeklyItems
+          empty="Nenhum risco detectado."
+          items={draft.risks.map((risk) => ({
+            title: risk.title,
+            status: risk.severity,
+          }))}
+        />
+      </article>
+    </div>
   );
 }
 

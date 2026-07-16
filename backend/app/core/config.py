@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     ai_provider: str = "mock"
     ai_api_key: str | None = None
     ai_model: str | None = None
+    gemini_api_key: str | None = None
     log_level: str = "INFO"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

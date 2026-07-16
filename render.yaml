@@ -20,6 +20,10 @@ services:
         value: https://portal-inteligente-de-projetos-maxi.vercel.app,https://maxicon-ai-portal-web.vercel.app
       - key: AI_PROVIDER
         value: mock
+      - key: AI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_API_KEY
+        sync: false
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
         value: 60
       - key: REFRESH_TOKEN_EXPIRE_DAYS

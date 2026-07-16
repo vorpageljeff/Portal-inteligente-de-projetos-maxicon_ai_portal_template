@@ -291,3 +291,35 @@ def test_backend_rejects_invalid_operational_rules(client: TestClient) -> None:
         },
     )
     assert invalid_request_summary.status_code == 422
+
+
+def test_ai_intake_mock_preview_and_apply(client: TestClient) -> None:
+    headers = authenticate(client)
+    project_id = create_project(client, headers)
+
+    preview_response = client.post(
+        "/api/v1/ai/intake-preview",
+        headers=headers,
+        json={
+            "project_id": project_id,
+            "prompt": (
+                "Reuniao semanal do projeto Cotrijal com solicitacoes, riscos, "
+                "acoes e horas para preencher o portal."
+            ),
+        },
+    )
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["provider"] == "mock"
+    assert preview["draft"]["status_cycle"]["title"].startswith("Status semanal")
+
+    apply_response = client.post(
+        "/api/v1/ai/intake-apply",
+        headers=headers,
+        json={"project_id": project_id, "draft": preview["draft"]},
+    )
+    assert apply_response.status_code == 201
+    result = apply_response.json()
+    assert result["status_cycle_id"]
+    assert result["service_request_summary_id"]
+    assert len(result["action_ids"]) == 1
