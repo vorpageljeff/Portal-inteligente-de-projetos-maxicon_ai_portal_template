@@ -176,19 +176,47 @@ const apiBaseUrl =
     ? configuredApiUrl
     : "";
 
-const navItems: Array<{ id: Section; label: string; icon: string }> = [
-  { id: "overview", label: "Visao geral", icon: "⌂" },
-  { id: "projects", label: "Projetos", icon: "▣" },
-  { id: "milestones", label: "Marcos", icon: "⚑" },
-  { id: "risks", label: "Riscos", icon: "!" },
-  { id: "actions", label: "Plano de acao", icon: "☑" },
-  { id: "tasks", label: "Tarefas", icon: "T" },
-  { id: "deliverables", label: "Entregas", icon: "E" },
-  { id: "impediments", label: "Impedimentos", icon: "I" },
-  { id: "hours", label: "Horas", icon: "H" },
-  { id: "reports", label: "Reports", icon: "R" },
+const navGroups: Array<{
+  title: string;
+  description: string;
+  items: Array<{ id: Section; label: string; icon: string }>;
+}> = [
+  {
+    title: "Status semanal",
+    description: "Resumo executivo e comunicacao aprovada",
+    items: [
+      { id: "overview", label: "Dashboard executivo", icon: "D" },
+      { id: "reports", label: "Reports semanais", icon: "R" },
+      { id: "actions", label: "Plano executivo", icon: "A" },
+    ],
+  },
+  {
+    title: "Gestao do projeto",
+    description: "Fonte da verdade operacional",
+    items: [
+      { id: "projects", label: "Projetos", icon: "P" },
+      { id: "tasks", label: "Tarefas", icon: "T" },
+      { id: "deliverables", label: "Entregas", icon: "E" },
+      { id: "milestones", label: "Marcos", icon: "M" },
+      { id: "risks", label: "Riscos", icon: "!" },
+      { id: "impediments", label: "Impedimentos", icon: "I" },
+      { id: "hours", label: "Horas", icon: "H" },
+    ],
+  },
 ];
 
+const sectionTitles: Record<Section, string> = {
+  overview: "Status Semanal",
+  reports: "Status Semanal",
+  actions: "Status Semanal",
+  projects: "Gestao do Projeto",
+  tasks: "Gestao do Projeto",
+  deliverables: "Gestao do Projeto",
+  milestones: "Gestao do Projeto",
+  risks: "Gestao do Projeto",
+  impediments: "Gestao do Projeto",
+  hours: "Gestao do Projeto",
+};
 const today = new Date().toISOString().slice(0, 10);
 const nextMonth = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
 
@@ -719,16 +747,24 @@ export default function Home() {
         </div>
 
         <nav className="nav" aria-label="Navegacao principal">
-          {navItems.map((item) => (
-            <button
-              className={activeSection === item.id ? "nav-item active" : "nav-item"}
-              key={item.id}
-              onClick={() => openSection(item.id)}
-              type="button"
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span>{item.label}</span>
-            </button>
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group.title}>
+              <div className="nav-group-title">
+                <strong>{group.title}</strong>
+                <span>{group.description}</span>
+              </div>
+              {group.items.map((item) => (
+                <button
+                  className={activeSection === item.id ? "nav-item active" : "nav-item"}
+                  key={item.id}
+                  onClick={() => openSection(item.id)}
+                  type="button"
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 
@@ -753,7 +789,7 @@ export default function Home() {
             <button className="menu-btn" onClick={loadData} type="button" aria-label="Sincronizar">
               ☰
             </button>
-            <h1>Status Report Semanal</h1>
+            <h1>{sectionTitles[activeSection]}</h1>
           </div>
 
           <div className="topbar-actions">
@@ -794,8 +830,8 @@ export default function Home() {
               <div className="hero-content">
                 <h2>Visao consolidada da semana</h2>
                 <p>
-                  Os indicadores abaixo sao calculados a partir de projetos, marcos, riscos e plano
-                  de acao cadastrados.
+                  Sintese executiva gerada a partir da gestao operacional do projeto. Aqui entram
+                  apenas os pontos que precisam virar comunicacao semanal.
                 </p>
               </div>
               <div className="hero-status">
@@ -902,7 +938,7 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Portfolio</span>
-                <h2>Projetos em andamento</h2>
+                <h2>Cadastro e acompanhamento dos projetos</h2>
               </div>
               <button className="primary-btn" onClick={() => setModalMode("project")} type="button">
                 + Adicionar projeto
@@ -963,7 +999,7 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Execucao</span>
-                <h2>Plano de acao completo</h2>
+                <h2>Plano executivo da semana</h2>
               </div>
               <button className="primary-btn" onClick={() => setModalMode("action")} type="button">
                 + Nova acao
@@ -989,7 +1025,7 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Execucao</span>
-                <h2>Tarefas do projeto</h2>
+                <h2>Tarefas operacionais do projeto</h2>
               </div>
               <button className="primary-btn" onClick={() => setModalMode("task")} type="button">
                 + Nova tarefa
@@ -1104,7 +1140,7 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Governanca</span>
-                <h2>Status reports</h2>
+                <h2>Status reports semanais</h2>
               </div>
               <button className="primary-btn" onClick={generateReport} type="button">
                 + Gerar rascunho
@@ -1789,3 +1825,4 @@ function TimeEntryFields({ tasks }: { tasks: Task[] }) {
     </>
   );
 }
+

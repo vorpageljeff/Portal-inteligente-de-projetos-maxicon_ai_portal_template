@@ -109,7 +109,32 @@ button {
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 20px;
+}
+
+.nav-group {
+  display: grid;
+  gap: 7px;
+}
+
+.nav-group-title {
+  border-bottom: 1px solid rgba(126, 167, 220, 0.16);
+  display: grid;
+  gap: 4px;
+  margin: 2px 6px 4px;
+  padding-bottom: 8px;
+}
+
+.nav-group-title strong {
+  color: #ffffff;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.nav-group-title span {
+  color: #8fa2bf;
+  font-size: 11px;
 }
 
 .nav-item {
@@ -120,8 +145,8 @@ button {
   color: #c1cbe0;
   display: flex;
   gap: 14px;
-  min-height: 56px;
-  padding: 13px 18px;
+  min-height: 46px;
+  padding: 10px 14px;
   text-align: left;
 }
 
@@ -134,7 +159,8 @@ button {
 
 .nav-icon {
   color: #91c9ff;
-  font-size: 24px;
+  font-size: 16px;
+  font-weight: 800;
   width: 28px;
 }
 
