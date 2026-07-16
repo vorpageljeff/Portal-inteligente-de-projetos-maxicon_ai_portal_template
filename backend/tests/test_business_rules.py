@@ -146,6 +146,27 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert request_summary_response.status_code == 201
     assert request_summary_response.json()["total_requests"] == 12
 
+    action_response = client.post(
+        f"/api/v1/dashboard/projects/{project_id}/actions",
+        headers=headers,
+        json={
+            "title": "Alinhar pendencias da semana",
+            "priority": "high",
+            "due_date": "2026-07-10",
+            "status": "todo",
+        },
+    )
+    assert action_response.status_code == 201
+    action_id = action_response.json()["id"]
+
+    move_action_response = client.patch(
+        f"/api/v1/dashboard/projects/{project_id}/actions/{action_id}",
+        headers=headers,
+        json={"status": "in_progress"},
+    )
+    assert move_action_response.status_code == 200
+    assert move_action_response.json()["status"] == "in_progress"
+
     report_response = client.post(
         "/api/v1/status-reports",
         headers=headers,
@@ -189,6 +210,7 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
         for item in weekly["monitoring"]
     )
     assert any("#225135" in point for point in weekly["attention_points"])
+    assert any(item["status"] == "in_progress" for item in weekly["next_steps"])
 
 
 def test_backend_rejects_invalid_operational_rules(client: TestClient) -> None:

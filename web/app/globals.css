@@ -1176,12 +1176,59 @@ td {
   min-height: 330px;
 }
 
+.kanban-column.drop-ready {
+  outline: 1px dashed rgba(117, 211, 255, 0.42);
+  outline-offset: -10px;
+}
+
+.kanban-column-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kanban-column-header span {
+  background: rgba(13, 140, 255, 0.18);
+  border: 1px solid rgba(117, 211, 255, 0.28);
+  border-radius: 999px;
+  color: #a5d7ff;
+  min-width: 32px;
+  padding: 4px 10px;
+  text-align: center;
+}
+
 .task-card {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--line);
   border-radius: 10px;
   margin-top: 12px;
   padding: 14px;
+}
+
+.task-card.draggable {
+  cursor: grab;
+  display: grid;
+  gap: 7px;
+  user-select: none;
+}
+
+.task-card.draggable:active {
+  cursor: grabbing;
+}
+
+.task-card.draggable:hover {
+  border-color: rgba(117, 211, 255, 0.5);
+  transform: translateY(-1px);
+}
+
+.task-card strong {
+  color: #ffffff;
+}
+
+.task-card span {
+  color: #aab8cc;
+  font-size: 0.88rem;
 }
 
 .modal {

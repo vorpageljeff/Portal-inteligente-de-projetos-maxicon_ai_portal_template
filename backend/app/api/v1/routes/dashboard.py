@@ -30,6 +30,7 @@ from app.models.work_items import (
 from app.schemas.dashboard import (
     ActionItemCreate,
     ActionItemRead,
+    ActionItemUpdate,
     DashboardMetric,
     DashboardSummary,
     InitiativeStatus,
@@ -515,6 +516,39 @@ def create_action(
     db.add(action)
     db.flush()
     audit(db, actor=user, action="create", entity_type="action_item", entity_id=str(action.id))
+    db.commit()
+    db.refresh(action)
+    return action
+
+
+@router.patch(
+    "/projects/{project_id}/actions/{action_id}",
+    response_model=ActionItemRead,
+)
+def update_action(
+    project_id: uuid.UUID,
+    action_id: uuid.UUID,
+    payload: ActionItemUpdate,
+    db: DbSession,
+    user: CurrentUser,
+) -> ActionItem:
+    require_project(project_id, db)
+    action = db.get(ActionItem, action_id)
+    if not action or action.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Acao nao encontrada no projeto.")
+    before_status = action.status.value
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(action, field, value)
+    db.flush()
+    audit(
+        db,
+        actor=user,
+        action="update",
+        entity_type="action_item",
+        entity_id=str(action.id),
+        before={"status": before_status},
+        after={"status": action.status.value},
+    )
     db.commit()
     db.refresh(action)
     return action

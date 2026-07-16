@@ -46,6 +46,13 @@ class ActionItemCreate(BaseModel):
     status: ActionStatus = ActionStatus.TODO
 
 
+class ActionItemUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=3, max_length=220)
+    priority: ActionPriority | None = None
+    due_date: date | None = None
+    status: ActionStatus | None = None
+
+
 class ActionItemRead(ActionItemCreate):
     id: uuid.UUID
     project_id: uuid.UUID

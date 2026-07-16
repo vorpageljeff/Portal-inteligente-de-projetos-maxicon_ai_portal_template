@@ -70,6 +70,7 @@ type ActionItem = {
   due_date: string;
   status: "todo" | "in_progress" | "done";
 };
+type ActionStatus = ActionItem["status"];
 
 type User = {
   email: string;
@@ -333,6 +334,17 @@ function labelFor(value?: string | null) {
   return labels[value] ?? value;
 }
 
+function formatDateBR(value?: string | null) {
+  if (!value) return "Nao informado";
+  const [year, month, day] = value.slice(0, 10).split("-");
+  if (!year || !month || !day) return value;
+  return `${day}/${month}/${year}`;
+}
+
+function formatPeriodBR(start?: string | null, end?: string | null) {
+  return `${formatDateBR(start)} a ${formatDateBR(end)}`;
+}
+
 const emptyDashboard: Dashboard = {
   health_label: "Sem dados",
   health_percent: 0,
@@ -380,6 +392,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const totalHours = useMemo(
@@ -597,6 +610,33 @@ export default function Home() {
       },
       "Acao salva e plano atualizado.",
     );
+  }
+
+  async function moveAction(actionId: string, nextStatus: ActionStatus) {
+    if (!selectedProject) return;
+    const action = dashboard.actions.find((item) => item.id === actionId);
+    if (!action || action.status === nextStatus) {
+      setDraggingActionId(null);
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(
+        `/api/v1/dashboard/projects/${selectedProject.id}/actions/${actionId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ status: nextStatus }),
+        },
+      );
+      setMessage("Acao movimentada e dashboard atualizado.");
+      await loadData();
+      await loadProjectDetails(selectedProject.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao movimentar acao.");
+    } finally {
+      setDraggingActionId(null);
+    }
   }
 
   async function handleTaskSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1091,7 +1131,7 @@ export default function Home() {
             <div className="milestone-grid">
               {dashboard.milestones.map((milestone) => (
                 <article className="panel milestone-card" key={milestone.id}>
-                  <span>{milestone.due_date}</span>
+                  <span>{formatDateBR(milestone.due_date)}</span>
                   <h3>{milestone.title}</h3>
                   <p>Status: {labelFor(milestone.status)}</p>
                 </article>
@@ -1136,13 +1176,45 @@ export default function Home() {
             </div>
             <div className="kanban">
               {(["todo", "in_progress", "done"] as const).map((status) => (
-                <article className="panel kanban-column" key={status}>
-                  <h3>{status === "todo" ? "A fazer" : status === "in_progress" ? "Em andamento" : "Concluido"}</h3>
+                <article
+                  className={draggingActionId ? "panel kanban-column drop-ready" : "panel kanban-column"}
+                  key={status}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const actionId = event.dataTransfer.getData("text/plain") || draggingActionId;
+                    if (actionId) {
+                      void moveAction(actionId, status);
+                    }
+                  }}
+                >
+                  <div className="kanban-column-header">
+                    <h3>{status === "todo" ? "A fazer" : status === "in_progress" ? "Em andamento" : "Concluido"}</h3>
+                    <span>{dashboard.actions.filter((action) => action.status === status).length}</span>
+                  </div>
                   {dashboard.actions
                     .filter((action) => action.status === status)
                     .map((action) => (
-                      <div className="task-card" key={action.id}>{action.title}</div>
+                      <div
+                        className="task-card draggable"
+                        draggable
+                        key={action.id}
+                        onDragEnd={() => setDraggingActionId(null)}
+                        onDragStart={(event) => {
+                          setDraggingActionId(action.id);
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", action.id);
+                        }}
+                      >
+                        <strong>{action.title}</strong>
+                        <span>
+                          {labelFor(action.priority)} · prazo {formatDateBR(action.due_date)}
+                        </span>
+                      </div>
                     ))}
+                  {!dashboard.actions.some((action) => action.status === status) && (
+                    <p className="empty-text">Arraste uma acao para esta coluna.</p>
+                  )}
                 </article>
               ))}
             </div>
@@ -1165,7 +1237,7 @@ export default function Home() {
                 <article className="panel record-card" key={task.id}>
                   <span>{labelFor(task.priority)} · {labelFor(task.responsible_org)}</span>
                   <h3>{task.title}</h3>
-                  <p>{task.owner_name} · {task.start_date} a {task.due_date}</p>
+                  <p>{task.owner_name} · {formatPeriodBR(task.start_date, task.due_date)}</p>
                   <div className="progress-track"><span style={{ width: `${task.progress_percent}%` }} /></div>
                   <small>{task.progress_percent}% · {labelFor(task.status)}</small>
                 </article>
@@ -1192,7 +1264,7 @@ export default function Home() {
                   <span>{labelFor(deliverable.status)}</span>
                   <h3>{deliverable.title}</h3>
                   <p>{deliverable.acceptance_criteria}</p>
-                  <small>{deliverable.owner_name} · prazo {deliverable.due_date}</small>
+                  <small>{deliverable.owner_name} · prazo {formatDateBR(deliverable.due_date)}</small>
                 </article>
               ))}
               {!deliverables.length && <EmptyPanel text="Nenhuma entrega cadastrada para o projeto selecionado." />}
@@ -1217,7 +1289,7 @@ export default function Home() {
                   <span>{labelFor(impediment.responsible_org)} · {labelFor(impediment.status)}</span>
                   <h3>{impediment.affected_activity}</h3>
                   <p>{impediment.description}</p>
-                  <small>{impediment.owner_name} · prazo {impediment.due_date}</small>
+                  <small>{impediment.owner_name} · prazo {formatDateBR(impediment.due_date)}</small>
                 </article>
               ))}
               {!impediments.length && <EmptyPanel text="Nenhum impedimento cadastrado para o projeto selecionado." />}
@@ -1250,7 +1322,7 @@ export default function Home() {
                 <tbody>
                   {timeEntries.map((entry) => (
                     <tr key={entry.id}>
-                      <td>{entry.entry_date}</td>
+                      <td>{formatDateBR(entry.entry_date)}</td>
                       <td>{entry.user_name}</td>
                       <td>{entry.hours}</td>
                       <td>{labelFor(entry.entry_type)}</td>
@@ -1279,7 +1351,7 @@ export default function Home() {
               {reports.map((report) => (
                 <article className="panel report-card" key={report.id}>
                   <div className="panel-header">
-                    <h3>{report.period_start} a {report.period_end}</h3>
+                    <h3>{formatPeriodBR(report.period_start, report.period_end)}</h3>
                     <span className={report.status === "approved" ? "status-pill green" : "status-pill yellow"}>
                       {labelFor(report.status)}
                     </span>
@@ -1385,11 +1457,11 @@ function WeeklyStatusDashboard({ status }: { status: WeeklyStatus }) {
         <div className="weekly-kpis">
           <div>
             <span>Periodo</span>
-            <strong>{status.period_start} a {status.period_end}</strong>
+            <strong>{formatPeriodBR(status.period_start, status.period_end)}</strong>
           </div>
           <div>
             <span>Go-live</span>
-            <strong>{status.go_live_date}</strong>
+            <strong>{formatDateBR(status.go_live_date)}</strong>
             <small>{status.days_to_go_live} dias</small>
           </div>
           <div>
@@ -1475,7 +1547,7 @@ function WeeklyItems({ items, empty }: { items: WeeklyStatusItem[]; empty: strin
           <span>
             {labelFor(item.status)}
             {item.owner ? ` · ${item.owner}` : ""}
-            {item.due_date ? ` · ${item.due_date}` : ""}
+            {item.due_date ? ` · ${formatDateBR(item.due_date)}` : ""}
           </span>
         </div>
       ))}
@@ -1552,7 +1624,7 @@ function ActionPanel({ actions, openActions }: { actions: ActionItem[]; openActi
             <input checked={action.status === "done"} readOnly type="checkbox" />
             <span>{action.title}</span>
             <b className={`priority ${action.priority}`}>{labelFor(action.priority)}</b>
-            <em>{action.due_date.slice(5)}</em>
+            <em>{formatDateBR(action.due_date).slice(0, 5)}</em>
           </label>
         ))}
       </div>
@@ -1588,7 +1660,7 @@ function ProjectTable({
               <td>{project.name}</td>
               <td>{project.manager_name || "Nao informado"}</td>
               <td>{project.progress_percent}%</td>
-              <td>{project.target_end_date}</td>
+              <td>{formatDateBR(project.target_end_date)}</td>
               <td>
                 <span className={project.status === "at_risk" ? "status-pill yellow" : "status-pill green"}>
                   {labelFor(project.status)}
@@ -1638,7 +1710,7 @@ function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSu
         <div className="panel-header">
           <div>
             <span className="eyebrow">Ultimo lancamento</span>
-            <h3>{latest.period_start} a {latest.period_end}</h3>
+            <h3>{formatPeriodBR(latest.period_start, latest.period_end)}</h3>
           </div>
           <span className={latest.critical_requests ? "status-pill red" : "status-pill green"}>
             {latest.critical_requests ? "Atencao" : "Controlado"}
@@ -1671,7 +1743,7 @@ function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSu
             <small>
               {latest.highlight_owner || "Responsavel nao informado"}
               {latest.highlight_status ? ` · ${latest.highlight_status}` : ""}
-              {latest.highlight_due_date ? ` · prazo ${latest.highlight_due_date}` : ""}
+              {latest.highlight_due_date ? ` · prazo ${formatDateBR(latest.highlight_due_date)}` : ""}
             </small>
           </>
         ) : (
@@ -1697,7 +1769,7 @@ function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSu
           <tbody>
             {summaries.map((summary) => (
               <tr key={summary.id}>
-                <td>{summary.period_start} a {summary.period_end}</td>
+                <td>{formatPeriodBR(summary.period_start, summary.period_end)}</td>
                 <td>{summary.total_requests}</td>
                 <td>{summary.open_requests}</td>
                 <td>{summary.completed_requests}</td>
