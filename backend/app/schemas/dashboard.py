@@ -87,3 +87,46 @@ class DashboardSummary(BaseModel):
     milestones: list[MilestoneRead]
     risks: list[RiskRead]
     actions: list[ActionItemRead]
+
+
+class WeeklyStatusItem(BaseModel):
+    title: str
+    status: str
+    owner: str | None = None
+    due_date: date | None = None
+    progress_percent: float | None = None
+
+
+class WeeklyStatusHours(BaseModel):
+    negotiated: float
+    executed: float
+    balance: float
+    billable_rate: int
+
+
+class WeeklyStatusMonitoring(BaseModel):
+    label: str
+    value: str
+    tone: str = "neutral"
+
+
+class WeeklyStatusSummary(BaseModel):
+    project_id: uuid.UUID
+    project_name: str
+    client_name: str
+    manager_name: str | None
+    period_start: date
+    period_end: date
+    go_live_date: date
+    days_to_go_live: int
+    progress_real: float
+    progress_expected: float
+    progress_gap: float
+    health_label: str
+    health_percent: int
+    hours: WeeklyStatusHours
+    monitoring: list[WeeklyStatusMonitoring]
+    deliverables_in_progress: list[WeeklyStatusItem]
+    next_steps: list[WeeklyStatusItem]
+    milestones: list[WeeklyStatusItem]
+    attention_points: list[str]

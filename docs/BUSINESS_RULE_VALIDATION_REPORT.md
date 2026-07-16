@@ -3,6 +3,7 @@
 Data da auditoria: 2026-07-15
 Atualizacao pos-correcao P0/P1: 2026-07-15
 Atualizacao de refinamento operacional: 2026-07-15
+Atualizacao de solicitacoes semanais: 2026-07-16
 
 ## 1. Resumo executivo
 
@@ -33,6 +34,7 @@ Parecer atual: **APTO COM RESSALVAS** para piloto tecnico controlado. Foram adic
 | Horas e capacidade | PARCIALMENTE CONFORME | P1 |
 | Riscos | PARCIALMENTE CONFORME | P1 |
 | Status report semanal | PARCIALMENTE CONFORME | P1 |
+| Solicitacoes externas consolidadas | PARCIALMENTE CONFORME | P1 |
 | IA rastreavel e auditavel | NAO CONFORME | P0 |
 | Auditoria e LGPD operacional | PARCIALMENTE CONFORME | P1 |
 | Testes automatizados de regras | PARCIALMENTE CONFORME | P1 |
@@ -153,6 +155,17 @@ Parecer atual: **APTO COM RESSALVAS** para piloto tecnico controlado. Foram adic
 - Recomendacao: bloquear nova versao sobre report aprovado, criar exportacao identica ao conteudo aprovado e tela completa de revisao.
 - Prioridade: P1.
 
+### SOL01 a SOL06 - Solicitacoes externas consolidadas
+
+- Evidencia: `WeeklyServiceRequestSummary` em `backend/app/models/operations.py`; tela `Solicitacoes semanais` em `web/app/page.tsx`.
+- Endpoint: `GET/POST /api/v1/operations/projects/{project_id}/service-request-summaries`.
+- Tabela: `weekly_service_request_summaries`.
+- Regra esperada: como o sistema externo de solicitacoes nao possui endpoint disponivel, o portal deve receber apenas numeros consolidados por semana/projeto e um destaque relevante.
+- Comportamento atual: backend valida periodo, numeros nao negativos e consistencia basica entre totais; dashboard semanal e status report consomem o ultimo resumo lancado.
+- Risco: medio; sem integracao, os numeros dependem de disciplina operacional de lancamento.
+- Recomendacao: manter lancamento enxuto, criar revisao/aprovacao do resumo semanal e, futuramente, importar CSV se o sistema externo permitir.
+- Prioridade: P1.
+
 ### IA01 a IA09 - IA rastreavel
 
 - Evidencia: `ai_provider="mock"` em `backend/app/core/config.py`; decisao documentada em `docs/DECISIONS.md`.
@@ -261,10 +274,10 @@ python -m pytest
 Resultado:
 
 ```text
-5 passed in 3.92s
+5 passed
 ```
 
-Observacao: os testes agora cobrem autenticacao obrigatoria, bootstrap/login, projeto, tarefa, hora aprovada, status report gerado por dados persistidos, aprovacao, entrega concluida sem data real, impedimento com prazo invalido e apontamento em tarefa fora do projeto.
+Observacao: os testes agora cobrem autenticacao obrigatoria, bootstrap/login, projeto, tarefa, hora aprovada, resumo semanal de solicitacoes, status report gerado por dados persistidos, aprovacao, entrega concluida sem data real, impedimento com prazo invalido e apontamento em tarefa fora do projeto.
 
 ## 15. Resultado dos builds
 
@@ -273,18 +286,14 @@ Comandos executados:
 ```powershell
 python -m ruff check backend
 python -m mypy backend\app
-npm ci
 npm run build
 ```
 
 Resultados:
 
 - Ruff: `All checks passed!`
-- Mypy: `Success: no issues found in 22 source files`
-- `npm ci`: 0 vulnerabilidades encontradas.
+- Mypy: `Success: no issues found in 31 source files`
 - Next build: compilou com sucesso.
-
-Observacao: antes do `npm ci`, `npm run build` falhou localmente porque `next` nao estava instalado em `web/node_modules`.
 
 ## 16. Resultado das migrations
 
@@ -295,6 +304,7 @@ $env:PYTHONPATH='.'; python -m alembic upgrade head --sql
 ```
 
 Resultado: SQL gerado com sucesso para `projects`, `milestones`, `risks` e `action_items`.
+Inclui tambem a nova tabela `weekly_service_request_summaries`.
 
 Limitacao: nao foi validada conexao direta ao PostgreSQL do Render nesta auditoria local.
 

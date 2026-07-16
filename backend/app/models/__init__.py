@@ -11,6 +11,7 @@ from app.models.operations import (
     Task,
     TimeEntry,
     TimeEntryType,
+    WeeklyServiceRequestSummary,
     WorkStatus,
 )
 from app.models.project import Project, ProjectStatus
@@ -51,5 +52,6 @@ __all__ = [
     "TimeEntryType",
     "User",
     "UserRole",
+    "WeeklyServiceRequestSummary",
     "WorkStatus",
 ]

@@ -8,6 +8,7 @@ type Section =
   | "milestones"
   | "risks"
   | "actions"
+  | "requests"
   | "tasks"
   | "deliverables"
   | "impediments"
@@ -22,6 +23,7 @@ type ModalMode =
   | "deliverable"
   | "impediment"
   | "timeEntry"
+  | "serviceRequests"
   | null;
 type AuthMode = "login" | "bootstrap";
 
@@ -148,6 +150,66 @@ type TimeEntry = {
   approval_status: "draft" | "submitted" | "approved" | "rejected" | "corrected";
 };
 
+type ServiceRequestSummary = {
+  id: string;
+  project_id: string;
+  period_start: string;
+  period_end: string;
+  project_requests: number;
+  gap_requests: number;
+  adjustment_requests: number;
+  open_requests: number;
+  completed_requests: number;
+  late_requests: number;
+  critical_requests: number;
+  waiting_maxicon: number;
+  waiting_client: number;
+  waiting_sap: number;
+  highlight_number?: string | null;
+  highlight_subject?: string | null;
+  highlight_owner?: string | null;
+  highlight_due_date?: string | null;
+  highlight_status?: string | null;
+  highlight_impact?: string | null;
+  total_requests: number;
+  created_at: string;
+};
+
+type WeeklyStatusItem = {
+  title: string;
+  status: string;
+  owner?: string | null;
+  due_date?: string | null;
+  progress_percent?: number | null;
+};
+
+type WeeklyStatus = {
+  project_id: string;
+  project_name: string;
+  client_name: string;
+  manager_name?: string | null;
+  period_start: string;
+  period_end: string;
+  go_live_date: string;
+  days_to_go_live: number;
+  progress_real: number;
+  progress_expected: number;
+  progress_gap: number;
+  health_label: string;
+  health_percent: number;
+  hours: {
+    negotiated: number;
+    executed: number;
+    balance: number;
+    billable_rate: number;
+  };
+  monitoring: Array<{ label: string; value: string; tone: string }>;
+  deliverables_in_progress: WeeklyStatusItem[];
+  next_steps: WeeklyStatusItem[];
+  milestones: WeeklyStatusItem[];
+  attention_points: string[];
+};
+
 type Dashboard = {
   health_label: string;
   health_percent: number;
@@ -186,6 +248,7 @@ const navGroups: Array<{
     description: "Resumo executivo e comunicacao aprovada",
     items: [
       { id: "overview", label: "Dashboard executivo", icon: "D" },
+      { id: "requests", label: "Solicitacoes semanais", icon: "S" },
       { id: "reports", label: "Reports semanais", icon: "R" },
       { id: "actions", label: "Plano executivo", icon: "A" },
     ],
@@ -209,6 +272,7 @@ const sectionTitles: Record<Section, string> = {
   overview: "Status Semanal",
   reports: "Status Semanal",
   actions: "Status Semanal",
+  requests: "Status Semanal",
   projects: "Gestao do Projeto",
   tasks: "Gestao do Projeto",
   deliverables: "Gestao do Projeto",
@@ -295,6 +359,8 @@ const emptyDashboard: Dashboard = {
   actions: [],
 };
 
+const emptyWeeklyStatus: WeeklyStatus | null = null;
+
 export default function Home() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -306,6 +372,8 @@ export default function Home() {
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [impediments, setImpediments] = useState<Impediment[]>([]);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [serviceRequestSummaries, setServiceRequestSummaries] = useState<ServiceRequestSummary[]>([]);
+  const [weeklyStatus, setWeeklyStatus] = useState<WeeklyStatus | null>(emptyWeeklyStatus);
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -423,19 +491,33 @@ export default function Home() {
 
   async function loadProjectDetails(projectId: string) {
     try {
-      const [taskData, deliverableData, impedimentData, timeEntryData, reportData] =
+      const [
+        taskData,
+        deliverableData,
+        impedimentData,
+        timeEntryData,
+        reportData,
+        weeklyData,
+        requestSummaryData,
+      ] =
         await Promise.all([
           apiRequest<Task[]>(`/api/v1/operations/projects/${projectId}/tasks`),
           apiRequest<Deliverable[]>(`/api/v1/operations/projects/${projectId}/deliverables`),
           apiRequest<Impediment[]>(`/api/v1/operations/projects/${projectId}/impediments`),
           apiRequest<TimeEntry[]>(`/api/v1/operations/projects/${projectId}/time-entries`),
           apiRequest<StatusReport[]>(`/api/v1/status-reports/project/${projectId}`),
+          apiRequest<WeeklyStatus>(`/api/v1/dashboard/weekly-status/${projectId}`),
+          apiRequest<ServiceRequestSummary[]>(
+            `/api/v1/operations/projects/${projectId}/service-request-summaries`,
+          ),
         ]);
       setTasks(taskData);
       setDeliverables(deliverableData);
       setImpediments(impedimentData);
       setTimeEntries(timeEntryData);
       setReports(reportData);
+      setWeeklyStatus(weeklyData);
+      setServiceRequestSummaries(requestSummaryData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao carregar dados do projeto.");
     }
@@ -593,6 +675,36 @@ export default function Home() {
         approval_status: String(form.get("approval_status")),
       },
       "Hora apontada e recalculada pelo backend quando aprovada.",
+    );
+  }
+
+  async function handleServiceRequestSummarySubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedProject) return;
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      `/api/v1/operations/projects/${selectedProject.id}/service-request-summaries`,
+      {
+        period_start: String(form.get("period_start")),
+        period_end: String(form.get("period_end")),
+        project_requests: Number(form.get("project_requests") || 0),
+        gap_requests: Number(form.get("gap_requests") || 0),
+        adjustment_requests: Number(form.get("adjustment_requests") || 0),
+        open_requests: Number(form.get("open_requests") || 0),
+        completed_requests: Number(form.get("completed_requests") || 0),
+        late_requests: Number(form.get("late_requests") || 0),
+        critical_requests: Number(form.get("critical_requests") || 0),
+        waiting_maxicon: Number(form.get("waiting_maxicon") || 0),
+        waiting_client: Number(form.get("waiting_client") || 0),
+        waiting_sap: Number(form.get("waiting_sap") || 0),
+        highlight_number: String(form.get("highlight_number") || "") || null,
+        highlight_subject: String(form.get("highlight_subject") || "") || null,
+        highlight_owner: String(form.get("highlight_owner") || "") || null,
+        highlight_due_date: String(form.get("highlight_due_date") || "") || null,
+        highlight_status: String(form.get("highlight_status") || "") || null,
+        highlight_impact: String(form.get("highlight_impact") || "") || null,
+      },
+      "Resumo semanal de solicitacoes salvo e conectado ao dashboard.",
     );
   }
 
@@ -846,6 +958,8 @@ export default function Home() {
               </div>
             </section>
 
+            {weeklyStatus && <WeeklyStatusDashboard status={weeklyStatus} />}
+
             <section className="kpi-grid">
               {dashboard.metrics.map((metric, index) => (
                 <article className={metric.tone === "negative" ? "kpi-card alert" : "kpi-card"} key={metric.label}>
@@ -930,6 +1044,21 @@ export default function Home() {
               <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
               <ActionPanel actions={dashboard.actions} openActions={() => openSection("actions")} />
             </section>
+          </section>
+        )}
+
+        {activeSection === "requests" && (
+          <section className="content-section active">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Solicitacoes externas</span>
+                <h2>Resumo semanal das solicitacoes</h2>
+              </div>
+              <button className="primary-btn" onClick={() => setModalMode("serviceRequests")} type="button">
+                + Lancar numeros
+              </button>
+            </div>
+            <ServiceRequestSummaryPanel summaries={serviceRequestSummaries} />
           </section>
         )}
 
@@ -1184,6 +1313,7 @@ export default function Home() {
           onDeliverableSubmit={handleDeliverableSubmit}
           onImpedimentSubmit={handleImpedimentSubmit}
           onTimeEntrySubmit={handleTimeEntrySubmit}
+          onServiceRequestSummarySubmit={handleServiceRequestSummarySubmit}
           tasks={tasks}
         />
       )}
@@ -1234,6 +1364,121 @@ function PortfolioChart({ points }: { points: Dashboard["portfolio_trend"] }) {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function WeeklyStatusDashboard({ status }: { status: WeeklyStatus }) {
+  const progressGapTone = status.progress_gap < 0 ? "negative" : "positive";
+  return (
+    <section className="weekly-status-grid">
+      <article className="panel weekly-overview">
+        <div className="panel-header">
+          <div>
+            <span className="eyebrow">Status semanal</span>
+            <h3>{status.project_name}</h3>
+          </div>
+          <span className={status.health_label === "Critico" ? "status-pill red" : status.health_label === "Atencao" ? "status-pill yellow" : "status-pill green"}>
+            {status.health_label}
+          </span>
+        </div>
+        <div className="weekly-kpis">
+          <div>
+            <span>Periodo</span>
+            <strong>{status.period_start} a {status.period_end}</strong>
+          </div>
+          <div>
+            <span>Go-live</span>
+            <strong>{status.go_live_date}</strong>
+            <small>{status.days_to_go_live} dias</small>
+          </div>
+          <div>
+            <span>Completude real</span>
+            <strong>{Math.round(status.progress_real)}%</strong>
+          </div>
+          <div>
+            <span>Esperado</span>
+            <strong>{Math.round(status.progress_expected)}%</strong>
+            <small className={progressGapTone}>{status.progress_gap} p.p.</small>
+          </div>
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-header">
+          <h3>Monitoramento</h3>
+        </div>
+        <div className="monitoring-grid">
+          {status.monitoring.map((item) => (
+            <div className={`monitoring-item ${item.tone}`} key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="panel">
+        <div className="panel-header">
+          <h3>Horas do projeto</h3>
+        </div>
+        <div className="hours-summary">
+          <div><span>Negociadas</span><strong>{Math.round(status.hours.negotiated)}h</strong></div>
+          <div><span>Executadas</span><strong>{Math.round(status.hours.executed)}h</strong></div>
+          <div><span>Saldo</span><strong>{Math.round(status.hours.balance)}h</strong></div>
+          <div><span>Rentaveis</span><strong>{status.hours.billable_rate}%</strong></div>
+        </div>
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header">
+          <h3>Entregaveis em andamento</h3>
+        </div>
+        <WeeklyItems items={status.deliverables_in_progress} empty="Sem entregaveis em andamento." />
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header">
+          <h3>Proximos passos</h3>
+        </div>
+        <WeeklyItems items={status.next_steps} empty="Sem proximos passos cadastrados." />
+      </article>
+
+      <article className="panel weekly-list">
+        <div className="panel-header">
+          <h3>Marcos do projeto</h3>
+        </div>
+        <WeeklyItems items={status.milestones} empty="Sem marcos cadastrados." />
+      </article>
+
+      <article className="panel weekly-attention">
+        <div className="panel-header">
+          <h3>Pontos de atencao</h3>
+        </div>
+        {status.attention_points.map((point) => (
+          <p key={point}>{point}</p>
+        ))}
+      </article>
+    </section>
+  );
+}
+
+function WeeklyItems({ items, empty }: { items: WeeklyStatusItem[]; empty: string }) {
+  if (!items.length) {
+    return <p className="empty-text">{empty}</p>;
+  }
+  return (
+    <div className="weekly-items">
+      {items.map((item) => (
+        <div key={`${item.title}-${item.due_date ?? ""}`}>
+          <strong>{item.title}</strong>
+          <span>
+            {labelFor(item.status)}
+            {item.owner ? ` · ${item.owner}` : ""}
+            {item.due_date ? ` · ${item.due_date}` : ""}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1366,6 +1611,107 @@ function EmptyPanel({ text }: { text: string }) {
   );
 }
 
+function ServiceRequestSummaryPanel({ summaries }: { summaries: ServiceRequestSummary[] }) {
+  const latest = summaries[0];
+  if (!latest) {
+    return (
+      <div className="record-grid">
+        <EmptyPanel text="Nenhum resumo semanal de solicitacoes lancado para o projeto selecionado." />
+      </div>
+    );
+  }
+
+  const cards = [
+    ["Total", latest.total_requests],
+    ["Projeto", latest.project_requests],
+    ["GAP", latest.gap_requests],
+    ["Ajustes", latest.adjustment_requests],
+    ["Abertas", latest.open_requests],
+    ["Concluidas", latest.completed_requests],
+    ["Atrasadas", latest.late_requests],
+    ["Criticas", latest.critical_requests],
+  ];
+
+  return (
+    <div className="request-summary-layout">
+      <article className="panel request-summary-card">
+        <div className="panel-header">
+          <div>
+            <span className="eyebrow">Ultimo lancamento</span>
+            <h3>{latest.period_start} a {latest.period_end}</h3>
+          </div>
+          <span className={latest.critical_requests ? "status-pill red" : "status-pill green"}>
+            {latest.critical_requests ? "Atencao" : "Controlado"}
+          </span>
+        </div>
+        <div className="request-number-grid">
+          {cards.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+        <div className="waiting-row">
+          <span>Aguardando Maxicon: <b>{latest.waiting_maxicon}</b></span>
+          <span>Cliente: <b>{latest.waiting_client}</b></span>
+          <span>SAP/Terceiro: <b>{latest.waiting_sap}</b></span>
+        </div>
+      </article>
+
+      <article className="panel request-highlight">
+        <div className="panel-header">
+          <h3>Destaque da semana</h3>
+        </div>
+        {latest.highlight_number ? (
+          <>
+            <span className="eyebrow">Solicitacao #{latest.highlight_number}</span>
+            <h3>{latest.highlight_subject || "Assunto nao informado"}</h3>
+            <p>{latest.highlight_impact || "Sem impacto detalhado."}</p>
+            <small>
+              {latest.highlight_owner || "Responsavel nao informado"}
+              {latest.highlight_status ? ` · ${latest.highlight_status}` : ""}
+              {latest.highlight_due_date ? ` · prazo ${latest.highlight_due_date}` : ""}
+            </small>
+          </>
+        ) : (
+          <p className="empty-text">Nenhuma solicitacao destacada nesse lancamento.</p>
+        )}
+      </article>
+
+      <article className="panel table-panel wide">
+        <div className="panel-header">
+          <h3>Historico lancado</h3>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Periodo</th>
+              <th>Total</th>
+              <th>Abertas</th>
+              <th>Concluidas</th>
+              <th>Atrasadas</th>
+              <th>Criticas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summaries.map((summary) => (
+              <tr key={summary.id}>
+                <td>{summary.period_start} a {summary.period_end}</td>
+                <td>{summary.total_requests}</td>
+                <td>{summary.open_requests}</td>
+                <td>{summary.completed_requests}</td>
+                <td>{summary.late_requests}</td>
+                <td>{summary.critical_requests}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </article>
+    </div>
+  );
+}
+
 function DataModal({
   mode,
   projects,
@@ -1381,6 +1727,7 @@ function DataModal({
   onDeliverableSubmit,
   onImpedimentSubmit,
   onTimeEntrySubmit,
+  onServiceRequestSummarySubmit,
 }: {
   mode: ModalMode;
   projects: Project[];
@@ -1396,6 +1743,7 @@ function DataModal({
   onDeliverableSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onImpedimentSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onTimeEntrySubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onServiceRequestSummarySubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const title =
     mode === "project"
@@ -1412,7 +1760,9 @@ function DataModal({
                 ? "Nova entrega"
                 : mode === "impediment"
                   ? "Novo impedimento"
-                  : "Apontar horas";
+                  : mode === "timeEntry"
+                    ? "Apontar horas"
+                    : "Solicitacoes da semana";
   const submitHandler =
     mode === "project"
       ? onProjectSubmit
@@ -1426,9 +1776,11 @@ function DataModal({
               ? onTaskSubmit
               : mode === "deliverable"
                 ? onDeliverableSubmit
-                : mode === "impediment"
-                  ? onImpedimentSubmit
-                  : onTimeEntrySubmit;
+            : mode === "impediment"
+              ? onImpedimentSubmit
+              : mode === "timeEntry"
+                ? onTimeEntrySubmit
+                : onServiceRequestSummarySubmit;
 
   return (
     <div className="modal">
@@ -1459,6 +1811,7 @@ function DataModal({
           {mode === "deliverable" && <DeliverableFields />}
           {mode === "impediment" && <ImpedimentFields />}
           {mode === "timeEntry" && <TimeEntryFields tasks={tasks} />}
+          {mode === "serviceRequests" && <ServiceRequestSummaryFields />}
           <div className="modal-actions full">
             <button className="secondary-btn" onClick={close} type="button">
               Cancelar
@@ -1821,6 +2174,85 @@ function TimeEntryFields({ tasks }: { tasks: Task[] }) {
       <label className="full">
         Descricao
         <textarea name="description" required rows={3} placeholder="Atividade executada e evidencia." />
+      </label>
+    </>
+  );
+}
+
+function ServiceRequestSummaryFields() {
+  return (
+    <>
+      <label>
+        Inicio do periodo
+        <input name="period_start" required type="date" defaultValue={today} />
+      </label>
+      <label>
+        Fim do periodo
+        <input name="period_end" required type="date" defaultValue={today} />
+      </label>
+      <label>
+        Projeto
+        <input name="project_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        GAP
+        <input name="gap_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Ajustes
+        <input name="adjustment_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Abertas
+        <input name="open_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Concluidas
+        <input name="completed_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Atrasadas
+        <input name="late_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Criticas
+        <input name="critical_requests" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Aguardando Maxicon
+        <input name="waiting_maxicon" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Aguardando cliente
+        <input name="waiting_client" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Aguardando SAP/Terceiro
+        <input name="waiting_sap" min="0" type="number" defaultValue="0" />
+      </label>
+      <label>
+        Numero em destaque
+        <input name="highlight_number" placeholder="225135" />
+      </label>
+      <label>
+        Prazo do destaque
+        <input name="highlight_due_date" type="date" />
+      </label>
+      <label>
+        Responsavel
+        <input name="highlight_owner" placeholder="Maxicon, cliente ou SAP" />
+      </label>
+      <label>
+        Status do destaque
+        <input name="highlight_status" placeholder="Em tratativa" />
+      </label>
+      <label className="full">
+        Assunto do destaque
+        <input name="highlight_subject" placeholder="Ajustes de contrato e ordem de venda" />
+      </label>
+      <label className="full">
+        Impacto
+        <textarea name="highlight_impact" rows={3} placeholder="Impacto em prazo, aceite ou dependencia do projeto." />
       </label>
     </>
   );

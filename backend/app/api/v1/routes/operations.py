@@ -14,6 +14,7 @@ from app.models.operations import (
     Task,
     TimeEntry,
     TimeEntryType,
+    WeeklyServiceRequestSummary,
     WorkStatus,
 )
 from app.models.project import Project, ProjectStatus
@@ -27,6 +28,8 @@ from app.schemas.operations import (
     TaskRead,
     TimeEntryCreate,
     TimeEntryRead,
+    WeeklyServiceRequestSummaryCreate,
+    WeeklyServiceRequestSummaryRead,
 )
 from app.services.audit import audit
 
@@ -159,3 +162,52 @@ def create_time_entry(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.get(
+    "/projects/{project_id}/service-request-summaries",
+    response_model=list[WeeklyServiceRequestSummaryRead],
+)
+def list_service_request_summaries(
+    project_id: uuid.UUID,
+    db: DbSession,
+    _: CurrentUser,
+) -> list[WeeklyServiceRequestSummary]:
+    require_project(project_id, db)
+    return list(
+        db.scalars(
+            select(WeeklyServiceRequestSummary)
+            .where(WeeklyServiceRequestSummary.project_id == project_id)
+            .order_by(
+                WeeklyServiceRequestSummary.period_end.desc(),
+                WeeklyServiceRequestSummary.created_at.desc(),
+            )
+        )
+    )
+
+
+@router.post(
+    "/projects/{project_id}/service-request-summaries",
+    response_model=WeeklyServiceRequestSummaryRead,
+    status_code=201,
+)
+def create_service_request_summary(
+    project_id: uuid.UUID,
+    payload: WeeklyServiceRequestSummaryCreate,
+    db: DbSession,
+    user: CurrentUser,
+) -> WeeklyServiceRequestSummary:
+    require_project(project_id, db)
+    summary = WeeklyServiceRequestSummary(project_id=project_id, **payload.model_dump())
+    db.add(summary)
+    db.flush()
+    audit(
+        db,
+        actor=user,
+        action="create",
+        entity_type="weekly_service_request_summary",
+        entity_id=str(summary.id),
+    )
+    db.commit()
+    db.refresh(summary)
+    return summary

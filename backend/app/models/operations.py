@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -129,6 +129,36 @@ class TimeEntry(Base):
         default=ApprovalStatus.SUBMITTED,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class WeeklyServiceRequestSummary(Base):
+    __tablename__ = "weekly_service_request_summaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id"), index=True)
+    period_start: Mapped[date] = mapped_column(Date, index=True)
+    period_end: Mapped[date] = mapped_column(Date, index=True)
+    project_requests: Mapped[int] = mapped_column(Integer, default=0)
+    gap_requests: Mapped[int] = mapped_column(Integer, default=0)
+    adjustment_requests: Mapped[int] = mapped_column(Integer, default=0)
+    open_requests: Mapped[int] = mapped_column(Integer, default=0)
+    completed_requests: Mapped[int] = mapped_column(Integer, default=0)
+    late_requests: Mapped[int] = mapped_column(Integer, default=0)
+    critical_requests: Mapped[int] = mapped_column(Integer, default=0)
+    waiting_maxicon: Mapped[int] = mapped_column(Integer, default=0)
+    waiting_client: Mapped[int] = mapped_column(Integer, default=0)
+    waiting_sap: Mapped[int] = mapped_column(Integer, default=0)
+    highlight_number: Mapped[str | None] = mapped_column(String(40))
+    highlight_subject: Mapped[str | None] = mapped_column(String(220))
+    highlight_owner: Mapped[str | None] = mapped_column(String(120))
+    highlight_due_date: Mapped[date | None] = mapped_column(Date)
+    highlight_status: Mapped[str | None] = mapped_column(String(80))
+    highlight_impact: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    @property
+    def total_requests(self) -> int:
+        return self.project_requests + self.gap_requests + self.adjustment_requests
 
 
 class StatusReport(Base):

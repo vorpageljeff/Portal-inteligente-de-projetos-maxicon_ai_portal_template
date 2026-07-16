@@ -109,6 +109,55 @@ class TimeEntryRead(TimeEntryCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class WeeklyServiceRequestSummaryCreate(BaseModel):
+    period_start: date
+    period_end: date
+    project_requests: int = Field(default=0, ge=0)
+    gap_requests: int = Field(default=0, ge=0)
+    adjustment_requests: int = Field(default=0, ge=0)
+    open_requests: int = Field(default=0, ge=0)
+    completed_requests: int = Field(default=0, ge=0)
+    late_requests: int = Field(default=0, ge=0)
+    critical_requests: int = Field(default=0, ge=0)
+    waiting_maxicon: int = Field(default=0, ge=0)
+    waiting_client: int = Field(default=0, ge=0)
+    waiting_sap: int = Field(default=0, ge=0)
+    highlight_number: str | None = Field(default=None, max_length=40)
+    highlight_subject: str | None = Field(default=None, max_length=220)
+    highlight_owner: str | None = Field(default=None, max_length=120)
+    highlight_due_date: date | None = None
+    highlight_status: str | None = Field(default=None, max_length=80)
+    highlight_impact: str | None = None
+
+    @model_validator(mode="after")
+    def validate_summary(self):
+        if self.period_end < self.period_start:
+            raise ValueError("O periodo final nao pode ser anterior ao inicial.")
+        total = self.project_requests + self.gap_requests + self.adjustment_requests
+        for field_name in (
+            "open_requests",
+            "completed_requests",
+            "late_requests",
+            "critical_requests",
+        ):
+            if getattr(self, field_name) > total:
+                raise ValueError("Totais por status nao podem ser maiores que o total informado.")
+        waiting_total = self.waiting_maxicon + self.waiting_client + self.waiting_sap
+        if waiting_total > total:
+            raise ValueError(
+                "Total aguardando responsavel nao pode ser maior que o total informado."
+            )
+        return self
+
+
+class WeeklyServiceRequestSummaryRead(WeeklyServiceRequestSummaryCreate):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    total_requests: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class StatusReportCreate(BaseModel):
     project_id: uuid.UUID
     period_start: date

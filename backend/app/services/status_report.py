@@ -13,6 +13,7 @@ from app.models.operations import (
     StatusReportVersion,
     Task,
     TimeEntry,
+    WeeklyServiceRequestSummary,
     WorkStatus,
 )
 from app.models.project import Project
@@ -100,6 +101,18 @@ class StatusReportService:
                 )
             )
         )
+        request_summary = db.scalar(
+            select(WeeklyServiceRequestSummary)
+            .where(
+                WeeklyServiceRequestSummary.project_id == project.id,
+                WeeklyServiceRequestSummary.period_start <= report.period_end,
+                WeeklyServiceRequestSummary.period_end >= report.period_start,
+            )
+            .order_by(
+                WeeklyServiceRequestSummary.period_end.desc(),
+                WeeklyServiceRequestSummary.created_at.desc(),
+            )
+        )
 
         total_hours = sum(entry.hours for entry in time_entries)
         billable_hours = sum(
@@ -113,6 +126,35 @@ class StatusReportService:
             if task.status != WorkStatus.DONE and task.due_date < report.period_end
         ]
         critical_risks = [risk for risk in risks if risk.severity == RiskSeverity.CRITICAL]
+        if request_summary:
+            requests_block = (
+                "Solicitacoes da semana:\n"
+                f"- Projeto: {request_summary.project_requests}\n"
+                f"- GAP: {request_summary.gap_requests}\n"
+                f"- Ajustes: {request_summary.adjustment_requests}\n"
+                f"- Abertas/concluidas: {request_summary.open_requests}/"
+                f"{request_summary.completed_requests}\n"
+                f"- Atrasadas/criticas: {request_summary.late_requests}/"
+                f"{request_summary.critical_requests}\n"
+                f"- Aguardando Maxicon/Cliente/SAP: {request_summary.waiting_maxicon}/"
+                f"{request_summary.waiting_client}/{request_summary.waiting_sap}\n"
+            )
+            if request_summary.highlight_number:
+                requests_block += (
+                    f"- Destaque: #{request_summary.highlight_number} "
+                    f"{request_summary.highlight_subject or 'sem assunto'}"
+                )
+                if request_summary.highlight_owner:
+                    requests_block += f" | responsavel: {request_summary.highlight_owner}"
+                if request_summary.highlight_status:
+                    requests_block += f" | status: {request_summary.highlight_status}"
+                if request_summary.highlight_due_date:
+                    requests_block += f" | prazo: {request_summary.highlight_due_date:%d/%m/%Y}"
+                if request_summary.highlight_impact:
+                    requests_block += f" | impacto: {request_summary.highlight_impact}"
+                requests_block += "\n"
+        else:
+            requests_block = "Solicitacoes da semana: sem lancamento consolidado no periodo.\n"
         previous_version = db.scalar(
             select(StatusReportVersion.version_number)
             .where(StatusReportVersion.report_id == report.id)
@@ -130,7 +172,8 @@ class StatusReportService:
             f"Entregas no periodo: {len(deliverables)}\n"
             f"Tarefas atrasadas: {len(delayed_tasks)}\n"
             f"Riscos criticos abertos: {len(critical_risks)}\n"
-            f"Impedimentos abertos: {len(impediments)}\n\n"
+            f"Impedimentos abertos: {len(impediments)}\n"
+            f"{requests_block}\n"
             "Evidencias consideradas:\n"
             f"- Tarefas: {', '.join(task.title for task in tasks) or 'nenhuma'}\n"
             f"- Entregas: {', '.join(item.title for item in deliverables) or 'nenhuma'}\n"
