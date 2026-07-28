@@ -384,6 +384,40 @@ const sectionTitles: Record<Section, string> = {
 };
 const today = new Date().toISOString().slice(0, 10);
 const nextMonth = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
+const aiPromptExample = `Reunião semanal de 24/07/2026.
+
+Avanços:
+- Configuração fiscal concluída.
+- Testes da integração bancária iniciados.
+
+Riscos:
+- Credenciais bancárias ainda não recebidas. Criticidade alta. Responsável: cliente.
+
+Ações:
+- Ana Souza deve enviar as credenciais até 27/07/2026.
+- Carlos Almeida deve concluir o roteiro de testes até 29/07/2026.
+
+Horas:
+- Jefferson Santos, 8 horas em configuração fiscal, tipo rentável.
+- Ana Souza, 4 horas em reunião de alinhamento, tipo reunião.`;
+
+function friendlyAiError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "Ocorreu um erro inesperado. Tente gerar novamente.";
+  }
+
+  const detail = error.message.toLowerCase();
+  if (detail.includes("timeout") || detail.includes("timed out")) {
+    return "A IA demorou mais que o esperado para responder. Aguarde alguns segundos e tente novamente.";
+  }
+  if (detail.includes("401") || detail.includes("403") || detail.includes("api key")) {
+    return "A integração com a IA não está configurada corretamente. Peça ao administrador para verificar a chave do Gemini.";
+  }
+  if (detail.includes("500") || detail.includes("502") || detail.includes("503") || detail.includes("gemini")) {
+    return "O serviço de IA está temporariamente indisponível. Suas anotações continuam salvas nesta tela; tente novamente em instantes.";
+  }
+  return "Não foi possível gerar o rascunho agora. Revise o texto e tente novamente.";
+}
 
 const labels: Record<string, string> = {
   active: "Ativo",
@@ -951,11 +985,7 @@ export default function Home() {
           : "Rascunho gerado com sucesso. Revise as informações antes de aplicar.",
       );
     } catch (err) {
-      setAiGenerationError(
-        err instanceof Error
-          ? err.message
-          : "Não foi possível gerar o rascunho. Tente novamente.",
-      );
+      setAiGenerationError(friendlyAiError(err));
     } finally {
       setAiGenerating(false);
     }
@@ -1469,24 +1499,79 @@ export default function Home() {
 
         {activeSection === "ai" && (
           <section className="content-section active">
-            <div className="section-heading">
+            <div className="ai-page-heading">
               <div>
-                <span className="eyebrow">Automacao assistida</span>
-                <h2>Preencher portal com IA</h2>
+                <span className="eyebrow">Assistente de IA</span>
+                <h2>Transforme suas anotações em dados do portal</h2>
+                <p>
+                  Cole o resumo da semana. A IA organiza riscos, ações, horas e solicitações
+                  para você revisar antes de atualizar o projeto.
+                </p>
               </div>
-              <button
-                className="primary-btn"
-                disabled={aiGenerating}
-                onClick={generateAiPreview}
-                type="button"
-              >
-                {aiGenerating && <span aria-hidden="true" className="button-spinner" />}
-                {aiGenerating ? "Gerando rascunho..." : "Gerar rascunho"}
-              </button>
             </div>
+
+            <ol aria-label="Como usar o assistente de IA" className="ai-steps">
+              <li className="active">
+                <span>1</span>
+                <div><strong>Cole as informações</strong><small>Use reunião, e-mail ou anotações.</small></div>
+              </li>
+              <li className={aiPreview ? "active" : ""}>
+                <span>2</span>
+                <div><strong>Revise o rascunho</strong><small>Confira o que a IA identificou.</small></div>
+              </li>
+              <li>
+                <span>3</span>
+                <div><strong>Atualize o portal</strong><small>Só acontece após sua confirmação.</small></div>
+              </li>
+            </ol>
+
             <article className="panel ai-intake-panel">
-              <label className="full">
-                Texto da reuniao, e-mail ou anotacao
+              <div className="ai-intake-header">
+                <div>
+                  <span className="ai-step-label">Etapa 1</span>
+                  <h3>Cole as informações da semana</h3>
+                  <p>Não precisa organizar. Quanto mais datas, responsáveis e números você incluir, melhor será o rascunho.</p>
+                </div>
+                <span className="ai-project-context">
+                  Projeto: <strong>{selectedProject?.name ?? "não selecionado"}</strong>
+                </span>
+              </div>
+
+              <div className="ai-input-toolbar">
+                <span>Inclua, se tiver: avanços, riscos, ações, horas e solicitações.</span>
+                <div>
+                  <button
+                    className="text-btn"
+                    disabled={aiGenerating}
+                    onClick={() => {
+                      setAiPrompt(aiPromptExample);
+                      setAiGenerationError("");
+                      setAiGenerationMessage("");
+                    }}
+                    type="button"
+                  >
+                    Inserir exemplo
+                  </button>
+                  {!!aiPrompt && (
+                    <button
+                      className="text-btn muted"
+                      disabled={aiGenerating}
+                      onClick={() => {
+                        setAiPrompt("");
+                        setAiPreview(null);
+                        setAiGenerationError("");
+                        setAiGenerationMessage("");
+                      }}
+                      type="button"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <label className="full ai-prompt-field">
+                <span className="sr-only">Texto da reunião, e-mail ou anotação</span>
                 <textarea
                   aria-describedby="ai-prompt-help"
                   disabled={aiGenerating}
@@ -1495,27 +1580,42 @@ export default function Home() {
                     if (aiGenerationError) setAiGenerationError("");
                     if (aiGenerationMessage) setAiGenerationMessage("");
                   }}
-                  placeholder="Cole aqui o resumo da reuniao, numeros da semana, riscos, acoes e solicitacoes..."
+                  placeholder="Exemplo: Na reunião de 24/07, concluímos a configuração fiscal. A integração bancária está atrasada por falta das credenciais..."
                   rows={9}
                   value={aiPrompt}
                 />
               </label>
-              <p className="ai-prompt-help empty-text" id="ai-prompt-help">
-                A IA gera apenas um rascunho para revisão. {aiPrompt.trim().length} de 20 caracteres mínimos.
-              </p>
+
+              <div className="ai-submit-row">
+                <p className="ai-prompt-help" id="ai-prompt-help">
+                  {aiPrompt.trim().length < 20
+                    ? `Digite pelo menos mais ${20 - aiPrompt.trim().length} caracteres.`
+                    : "Texto pronto para análise."}
+                </p>
+                <button
+                  className="primary-btn ai-generate-btn"
+                  disabled={aiGenerating || aiPrompt.trim().length < 20 || !selectedProject}
+                  onClick={generateAiPreview}
+                  type="button"
+                >
+                  {aiGenerating && <span aria-hidden="true" className="button-spinner" />}
+                  {aiGenerating ? "Analisando informações..." : "Gerar rascunho com IA"}
+                </button>
+              </div>
+
               {aiGenerating && (
                 <div aria-live="polite" className="ai-generation-feedback loading" role="status">
                   <span className="generation-spinner" aria-hidden="true" />
                   <div>
-                    <strong>Gerando o rascunho...</strong>
-                    <span>A IA está analisando o conteúdo. Isso pode levar até 45 segundos.</span>
+                    <strong>A IA está organizando suas informações.</strong>
+                    <span>Você pode aguardar nesta tela. Normalmente isso leva até 45 segundos.</span>
                   </div>
                 </div>
               )}
               {!aiGenerating && aiGenerationError && (
                 <div className="ai-generation-feedback error" role="alert">
                   <div>
-                    <strong>Não foi possível gerar o rascunho.</strong>
+                    <strong>O rascunho não foi gerado.</strong>
                     <span>{aiGenerationError}</span>
                   </div>
                   <button className="secondary-btn" onClick={generateAiPreview} type="button">
@@ -1526,7 +1626,7 @@ export default function Home() {
               {!aiGenerating && aiGenerationMessage && (
                 <div aria-live="polite" className="ai-generation-feedback success" role="status">
                   <div>
-                    <strong>Geração concluída.</strong>
+                    <strong>Rascunho pronto para revisão.</strong>
                     <span>{aiGenerationMessage}</span>
                   </div>
                 </div>
@@ -2303,57 +2403,71 @@ function AiPreviewPanel({
     draft.service_requests.gap_requests +
     draft.service_requests.adjustment_requests;
   return (
-    <div className="ai-preview-grid">
-      <article className="panel">
-        <div className="panel-header">
-          <div>
-            <span className="eyebrow">Provider: {preview.provider}</span>
-            <h3>{draft.status_cycle.title}</h3>
-          </div>
-          <span className="status-pill yellow">{Math.round(draft.confidence * 100)}%</span>
+    <section className="ai-review-section">
+      <div className="ai-review-heading">
+        <div>
+          <span className="ai-step-label">Etapa 2</span>
+          <h3>Revise o rascunho antes de atualizar o portal</h3>
+          <p>A IA não salvou nada ainda. Confira os dados abaixo e confirme somente se estiverem corretos.</p>
         </div>
-        <p>{draft.summary}</p>
-        <div className="request-number-grid">
-          <div><span>Reuniao</span><strong>{formatDateBR(draft.status_cycle.meeting_date)}</strong></div>
-          <div><span>Periodo</span><strong>{formatPeriodBR(draft.status_cycle.period_start, draft.status_cycle.period_end)}</strong></div>
-          <div><span>Solicitacoes</span><strong>{totalRequests}</strong></div>
-          <div><span>Horas</span><strong>{Math.round(draft.time_entries.reduce((sum, item) => sum + item.hours, 0))}h</strong></div>
-        </div>
-        {!!draft.warnings.length && (
-          <div className="ai-warning-list">
-            {draft.warnings.map((warning) => (
-              <p key={warning}>{warning}</p>
-            ))}
+        <span className="ai-provider-label">
+          {preview.provider === "mock" ? "Modo demonstração" : "Gerado com Gemini"}
+        </span>
+      </div>
+
+      <div className="ai-preview-grid">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <span className="eyebrow">Resumo identificado</span>
+              <h3>{draft.status_cycle.title}</h3>
+            </div>
+            <span className="status-pill yellow">{Math.round(draft.confidence * 100)}% de confiança</span>
           </div>
-        )}
-        <button className="primary-btn" onClick={applyAiPreview} type="button">
-          Aplicar rascunho no portal
-        </button>
-      </article>
+          <p>{draft.summary}</p>
+          <div className="request-number-grid">
+            <div><span>Reunião</span><strong>{formatDateBR(draft.status_cycle.meeting_date)}</strong></div>
+            <div><span>Período</span><strong>{formatPeriodBR(draft.status_cycle.period_start, draft.status_cycle.period_end)}</strong></div>
+            <div><span>Solicitações</span><strong>{totalRequests}</strong></div>
+            <div><span>Horas</span><strong>{Math.round(draft.time_entries.reduce((sum, item) => sum + item.hours, 0))}h</strong></div>
+          </div>
+          {!!draft.warnings.length && (
+            <div className="ai-warning-list">
+              {draft.warnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          )}
+          <button className="primary-btn ai-apply-btn" onClick={applyAiPreview} type="button">
+            Confirmar e atualizar o portal
+          </button>
+          <small className="ai-apply-help">Esta ação grava os dados deste rascunho no projeto selecionado.</small>
+        </article>
 
-      <article className="panel weekly-list">
-        <div className="panel-header"><h3>Acoes detectadas</h3></div>
-        <WeeklyItems
-          empty="Nenhuma acao detectada."
-          items={draft.actions.map((action) => ({
-            title: action.title,
-            status: action.status,
-            due_date: action.due_date,
-          }))}
-        />
-      </article>
+        <article className="panel weekly-list">
+          <div className="panel-header"><h3>Ações detectadas</h3></div>
+          <WeeklyItems
+            empty="Nenhuma ação detectada."
+            items={draft.actions.map((action) => ({
+              title: action.title,
+              status: action.status,
+              due_date: action.due_date,
+            }))}
+          />
+        </article>
 
-      <article className="panel weekly-list">
-        <div className="panel-header"><h3>Riscos detectados</h3></div>
-        <WeeklyItems
-          empty="Nenhum risco detectado."
-          items={draft.risks.map((risk) => ({
-            title: risk.title,
-            status: risk.severity,
-          }))}
-        />
-      </article>
-    </div>
+        <article className="panel weekly-list">
+          <div className="panel-header"><h3>Riscos detectados</h3></div>
+          <WeeklyItems
+            empty="Nenhum risco detectado."
+            items={draft.risks.map((risk) => ({
+              title: risk.title,
+              status: risk.severity,
+            }))}
+          />
+        </article>
+      </div>
+    </section>
   );
 }
 
