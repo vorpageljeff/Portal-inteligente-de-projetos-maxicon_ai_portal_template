@@ -48,6 +48,8 @@ type ModalMode =
   | "statusCycle"
   | null;
 type AuthMode = "login" | "bootstrap";
+type ClosingMode = "ai" | "manual" | null;
+type ManualClosingKey = "tasks" | "deliverables" | "hours" | "risks" | "actions" | "requests";
 
 type Project = {
   id: string;
@@ -400,6 +402,14 @@ Ações:
 Horas:
 - Jefferson Santos, 8 horas em configuração fiscal, tipo rentável.
 - Ana Souza, 4 horas em reunião de alinhamento, tipo reunião.`;
+const emptyManualClosingChecks: Record<ManualClosingKey, boolean> = {
+  tasks: false,
+  deliverables: false,
+  hours: false,
+  risks: false,
+  actions: false,
+  requests: false,
+};
 
 function friendlyAiError(error: unknown) {
   if (!(error instanceof Error)) {
@@ -512,6 +522,12 @@ export default function Home() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [weeklyClosingStep, setWeeklyClosingStep] = useState(1);
+  const [closingMode, setClosingMode] = useState<ClosingMode>(null);
+  const [manualClosingChecks, setManualClosingChecks] =
+    useState<Record<ManualClosingKey, boolean>>(emptyManualClosingChecks);
+  const [closingReviewed, setClosingReviewed] = useState(false);
+  const [aiAppliedForClosing, setAiAppliedForClosing] = useState(false);
+  const [aiReturnToClosing, setAiReturnToClosing] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -541,6 +557,20 @@ export default function Home() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const selectedStatusCycle =
     statusCycles.find((cycle) => cycle.id === selectedStatusCycleId) ?? statusCycles[0];
+  const closingReport = selectedStatusCycle
+    ? reports.find(
+        (report) =>
+          report.period_start === selectedStatusCycle.period_start &&
+          report.period_end === selectedStatusCycle.period_end,
+      )
+    : undefined;
+  const manualChecklistComplete = Object.values(manualClosingChecks).every(Boolean);
+  const closingDataReady =
+    closingMode === "ai"
+      ? aiAppliedForClosing
+      : closingMode === "manual"
+        ? manualChecklistComplete
+        : false;
   const totalHours = useMemo(
     () => projects.reduce((total, project) => total + project.actual_hours, 0),
     [projects],
@@ -558,8 +588,9 @@ export default function Home() {
   const portfolioProgress = projects.length
     ? Math.round(projects.reduce((total, project) => total + project.progress_percent, 0) / projects.length)
     : 0;
-  const validationIssues = useMemo(() => {
+  const { validationIssues, validationWarnings } = useMemo(() => {
     const issues: string[] = [];
+    const warnings: string[] = [];
     const now = today;
     const staleTasks = tasks.filter(
       (task) => task.status !== "done" && task.status !== "cancelled" && task.due_date < now,
@@ -569,17 +600,83 @@ export default function Home() {
     );
     const hoursWithoutTask = timeEntries.filter((entry) => !entry.task_id);
     const openCriticalRisks = dashboard.risks.filter(
-      (risk) => risk.severity === "critical" && risk.status !== "closed",
+      (risk) =>
+        risk.project_id === selectedProjectId &&
+        risk.severity === "critical" &&
+        risk.status !== "closed",
     );
     const ownerlessImpediments = impediments.filter((item) => !item.owner_name.trim());
 
-    if (staleTasks.length) issues.push(`${staleTasks.length} tarefa(s) com prazo vencido e sem conclusão.`);
+    if (staleTasks.length) warnings.push(`${staleTasks.length} tarefa(s) com prazo vencido e sem conclusão.`);
     if (completedWithoutEvidence.length) issues.push(`${completedWithoutEvidence.length} entrega(s) concluída(s) sem data real.`);
-    if (hoursWithoutTask.length) issues.push(`${hoursWithoutTask.length} apontamento(s) de horas sem tarefa vinculada.`);
-    if (openCriticalRisks.length) issues.push(`${openCriticalRisks.length} risco(s) crítico(s) exigem revisão do plano de mitigação.`);
+    if (hoursWithoutTask.length) warnings.push(`${hoursWithoutTask.length} apontamento(s) de horas sem tarefa vinculada.`);
+    if (openCriticalRisks.length) warnings.push(`${openCriticalRisks.length} risco(s) crítico(s) devem constar no relatório.`);
     if (ownerlessImpediments.length) issues.push(`${ownerlessImpediments.length} pendência(s) sem responsável.`);
-    return issues;
-  }, [dashboard.risks, deliverables, impediments, tasks, timeEntries]);
+    return { validationIssues: issues, validationWarnings: warnings };
+  }, [dashboard.risks, deliverables, impediments, selectedProjectId, tasks, timeEntries]);
+
+  const closingManualItems = [
+    {
+      id: "tasks",
+      label: "Tarefas",
+      description: "Atividades, responsáveis, prazos e andamento.",
+      count: tasks.length,
+      checked: manualClosingChecks.tasks,
+      onToggle: () =>
+        setManualClosingChecks((current) => ({ ...current, tasks: !current.tasks })),
+      onAdd: () => setModalMode("task"),
+    },
+    {
+      id: "deliverables",
+      label: "Entregas",
+      description: "Entregáveis do período e critérios de aceite.",
+      count: deliverables.length,
+      checked: manualClosingChecks.deliverables,
+      onToggle: () =>
+        setManualClosingChecks((current) => ({ ...current, deliverables: !current.deliverables })),
+      onAdd: () => setModalMode("deliverable"),
+    },
+    {
+      id: "hours",
+      label: "Horas",
+      description: "Apontamentos, profissionais e classificação das horas.",
+      count: timeEntries.length,
+      checked: manualClosingChecks.hours,
+      onToggle: () =>
+        setManualClosingChecks((current) => ({ ...current, hours: !current.hours })),
+      onAdd: () => setModalMode("timeEntry"),
+    },
+    {
+      id: "risks",
+      label: "Riscos e pendências",
+      description: "Riscos, criticidade, situação e plano de mitigação.",
+      count: dashboard.risks.filter((risk) => risk.project_id === selectedProjectId).length,
+      checked: manualClosingChecks.risks,
+      onToggle: () =>
+        setManualClosingChecks((current) => ({ ...current, risks: !current.risks })),
+      onAdd: () => setModalMode("risk"),
+    },
+    {
+      id: "actions",
+      label: "Plano de ação",
+      description: "Próximos passos, responsáveis e datas.",
+      count: dashboard.actions.filter((action) => action.project_id === selectedProjectId).length,
+      checked: manualClosingChecks.actions,
+      onToggle: () =>
+        setManualClosingChecks((current) => ({ ...current, actions: !current.actions })),
+      onAdd: () => setModalMode("action"),
+    },
+    {
+      id: "requests",
+      label: "Solicitações",
+      description: "Volumes, pendências e destaque da semana.",
+      count: serviceRequestSummaries.length,
+      checked: manualClosingChecks.requests,
+      onToggle: () =>
+        setManualClosingChecks((current) => ({ ...current, requests: !current.requests })),
+      onAdd: () => setModalMode("serviceRequests"),
+    },
+  ];
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 900px)").matches) {
@@ -678,6 +775,15 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId, selectedStatusCycleId, token]);
+
+  useEffect(() => {
+    setWeeklyClosingStep(1);
+    setClosingMode(null);
+    setManualClosingChecks(emptyManualClosingChecks);
+    setClosingReviewed(false);
+    setAiAppliedForClosing(false);
+    setAiReturnToClosing(false);
+  }, [selectedProjectId, selectedStatusCycleId]);
 
   async function loadProjectDetails(projectId: string, statusCycleId = selectedStatusCycleId) {
     try {
@@ -1011,6 +1117,12 @@ export default function Home() {
       setAiPrompt("");
       await loadData();
       await loadProjectDetails(selectedProject.id);
+      if (aiReturnToClosing) {
+        setAiAppliedForClosing(true);
+        setAiReturnToClosing(false);
+        setWeeklyClosingStep(4);
+        openSection("closing");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao aplicar rascunho de IA.");
     }
@@ -1107,6 +1219,36 @@ export default function Home() {
     setActiveSection("reports");
   }
 
+  async function generateClosingReport() {
+    if (!selectedProject || !selectedStatusCycle) {
+      setError("Selecione um projeto e um ciclo antes de gerar o relatório.");
+      return;
+    }
+    if (closingReport) {
+      setWeeklyClosingStep(5);
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest<StatusReport>("/api/v1/status-reports", {
+        method: "POST",
+        body: JSON.stringify({
+          project_id: selectedProject.id,
+          period_start: selectedStatusCycle.period_start,
+          period_end: selectedStatusCycle.period_end,
+        }),
+      });
+      await loadProjectDetails(selectedProject.id);
+      setClosingReviewed(false);
+      setWeeklyClosingStep(5);
+      setMessage("Rascunho do fechamento gerado e pronto para revisão.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao gerar o rascunho do fechamento.");
+    }
+  }
+
   async function approveReport(reportId: string) {
     setError("");
     setMessage("");
@@ -1116,8 +1258,10 @@ export default function Home() {
       if (selectedProjectId) {
         await loadProjectDetails(selectedProjectId);
       }
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao aprovar report.");
+      return false;
     }
   }
 
@@ -1452,16 +1596,31 @@ export default function Home() {
               setStep={setWeeklyClosingStep}
               projectName={selectedProject?.name ?? ""}
               period={selectedStatusCycle ? formatPeriodBR(selectedStatusCycle.period_start, selectedStatusCycle.period_end) : "Semana atual sem ciclo cadastrado"}
-              validationIssues={validationIssues}
-              onCollect={() => {
-                if (selectedProjectId) void loadProjectDetails(selectedProjectId);
+              hasCycle={Boolean(selectedProject && selectedStatusCycle)}
+              mode={closingMode}
+              setMode={(mode) => {
+                setClosingMode(mode);
+                setClosingReviewed(false);
+                if (mode === "ai") setAiAppliedForClosing(false);
               }}
-              onGenerate={() => openSection("ai")}
-              onReview={() => openSection("reports")}
+              manualItems={closingManualItems}
+              aiReady={aiAppliedForClosing}
+              dataReady={closingDataReady}
+              validationIssues={validationIssues}
+              validationWarnings={validationWarnings}
+              report={closingReport}
+              reviewed={closingReviewed}
+              published={closingReport?.status === "approved" || closingReport?.status === "presented"}
+              setReviewed={setClosingReviewed}
+              onCreateCycle={() => setModalMode("statusCycle")}
+              onOpenAi={() => {
+                setAiReturnToClosing(true);
+                openSection("ai");
+              }}
+              onGenerateReport={() => void generateClosingReport()}
+              onOpenReport={() => openSection("reports")}
               onPublish={() => {
-                const report = reports.find((item) => item.status !== "approved");
-                if (report) void approveReport(report.id);
-                else setMessage("Não há rascunho pendente de aprovação para este projeto.");
+                if (closingReport && closingReviewed) void approveReport(closingReport.id);
               }}
             />
             <StatusHistory reports={reports} />
