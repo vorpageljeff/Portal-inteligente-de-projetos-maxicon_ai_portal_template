@@ -19,7 +19,7 @@ services:
       - key: CORS_ORIGINS
         value: https://portal-inteligente-de-projetos-maxi.vercel.app,https://maxicon-ai-portal-web.vercel.app
       - key: AI_PROVIDER
-        value: mock
+        value: gemini
       - key: AI_MODEL
         value: gemini-3.5-flash
       - key: AI_TIMEOUT_SECONDS
