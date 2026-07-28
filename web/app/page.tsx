@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   DocumentCenter,
@@ -555,6 +555,9 @@ export default function Home() {
   );
   const billablePercent = percentage(billableHours, totalHours);
   const otherHours = Math.max(totalHours - billableHours - nonBillableHours, 0);
+  const portfolioProgress = projects.length
+    ? Math.round(projects.reduce((total, project) => total + project.progress_percent, 0) / projects.length)
+    : 0;
   const validationIssues = useMemo(() => {
     const issues: string[] = [];
     const now = today;
@@ -1279,178 +1282,159 @@ export default function Home() {
         {loading && <LoadingState />}
 
         {activeSection === "overview" && (
-          <section className="content-section active">
-            <div className="page-intro">
-              <div>
-                <span className="eyebrow">Carteira de projetos</span>
-                <h2>O que precisa da sua atenção hoje</h2>
-                <p>Indicadores consolidados para decidir rápido e avançar para os detalhes somente quando necessário.</p>
+          <section className="content-section active overview-dashboard">
+            <section className="overview-hero">
+              <div className="overview-hero-copy">
+                <span className="eyebrow">Painel executivo</span>
+                <h2>Visão clara do portfólio, logo de entrada</h2>
+                <p>
+                  Acompanhe desempenho, esforço e pontos de atenção sem precisar percorrer
+                  relatórios extensos.
+                </p>
+                <div className="overview-context">
+                  <span>Projeto em foco</span>
+                  <strong>{selectedProject?.name ?? "Nenhum projeto selecionado"}</strong>
+                  <small>
+                    {selectedStatusCycle
+                      ? formatPeriodBR(selectedStatusCycle.period_start, selectedStatusCycle.period_end)
+                      : "Semana atual"}
+                  </small>
+                </div>
               </div>
-            </div>
+              <div
+                className={`overview-health ${
+                  dashboard.health_label.toLowerCase().includes("cr")
+                    ? "critical"
+                    : dashboard.health_label.toLowerCase().includes("aten")
+                      ? "warning"
+                      : "positive"
+                }`}
+                style={{ "--health-value": `${Math.max(0, Math.min(dashboard.health_percent, 100))}%` } as CSSProperties}
+              >
+                <div className="overview-health-ring">
+                  <div>
+                    <strong>{dashboard.health_percent}%</strong>
+                    <span>saúde geral</span>
+                  </div>
+                </div>
+                <div>
+                  <span>Status do portfólio</span>
+                  <strong>{dashboard.health_label}</strong>
+                  <small>Atualizado em {new Date().toLocaleDateString("pt-BR")}</small>
+                </div>
+              </div>
+            </section>
 
-            <ExecutiveSummary
-              content={dashboard.executive_summary}
-              generatedAt={new Date().toLocaleDateString("pt-BR")}
-              reviewer={user?.full_name ?? "Aguardando responsável"}
-              reviewStatus="Revisão necessária"
-              onRegenerate={() => openSection("ai")}
-              onEdit={() => openSection("closing")}
-              onApprove={() => openSection("closing")}
-            />
-
-            <section className="executive-kpi-grid" aria-label="Indicadores principais da carteira">
+            <section className="overview-kpi-grid" aria-label="Indicadores principais da carteira">
               <KpiCard
                 label="Projetos ativos"
                 value={String(projects.filter((project) => project.status !== "completed").length)}
-                comparison="Carteira em execução"
+                comparison={`${projects.filter((project) => project.status === "at_risk").length} precisam de atenção`}
                 help="Projetos que ainda não foram concluídos."
                 tone="info"
               />
               <KpiCard
-                label="Em atenção"
-                value={String(projects.filter((project) => project.status === "at_risk").length)}
-                comparison="Exigem acompanhamento"
-                help="Projetos marcados como em atenção."
-                tone="warning"
+                label="Progresso médio"
+                value={`${portfolioProgress}%`}
+                comparison="Avanço consolidado da carteira"
+                help="Média do progresso informado em todos os projetos."
+                tone="positive"
               />
               <KpiCard
                 label="Riscos críticos"
                 value={String(dashboard.risks.filter((risk) => risk.severity === "critical" && risk.status !== "closed").length)}
-                comparison="Riscos ainda abertos"
-                help="Riscos críticos não encerrados."
+                comparison="Ainda exigem tratamento"
+                help="Riscos críticos que permanecem abertos."
                 tone="critical"
               />
               <KpiCard
-                label="Marcos próximos"
-                value={String(dashboard.milestones.filter((milestone) => milestone.status === "pending").length)}
-                comparison="Com acompanhamento pendente"
-                help="Marcos pendentes retornados pelo dashboard."
-              />
-              <KpiCard
-                label="Status não enviados"
-                value={String(reports.filter((report) => report.status !== "approved" && report.status !== "presented").length)}
-                comparison="Rascunhos e revisões"
-                help="Reports que ainda não foram aprovados ou apresentados."
-                tone="warning"
-              />
-              <KpiCard
-                label="Horas consumidas"
-                value={`${Math.round(totalHours)}h`}
-                comparison={`${billablePercent}% rentáveis`}
-                help="Soma das horas atuais dos projetos; não equivale ao avanço físico."
+                label="Horas rentáveis"
+                value={`${billablePercent}%`}
+                comparison={`${Math.round(billableHours)}h de ${Math.round(totalHours)}h apontadas`}
+                help="Percentual das horas apontadas classificadas como rentáveis."
                 tone="info"
               />
             </section>
 
-            <section className="hero-panel legacy-hero">
-              <div className="hero-orb">
-                <div className="shield">✓</div>
-              </div>
-              <div className="hero-content">
-                <h2>Visao consolidada da semana</h2>
-                <p>
-                  Sintese executiva gerada a partir da gestao operacional do projeto. Aqui entram
-                  apenas os pontos que precisam virar comunicacao semanal.
-                </p>
-              </div>
-              <div className="hero-status">
-                <span>Saude geral:</span>
-                <strong>{dashboard.health_label}</strong>
-                <div className="pulse-line" />
-              </div>
-              <div className="hero-brand">
-                <span>{dashboard.health_percent}%</span>
-                <strong>maxicon</strong>
-                <small>sistemas</small>
-              </div>
-            </section>
-
-            {weeklyStatus && <WeeklyStatusDashboard status={weeklyStatus} />}
-
-            <section className="kpi-grid legacy-kpi-grid">
-              {dashboard.metrics.map((metric, index) => (
-                <article className={metric.tone === "negative" ? "kpi-card alert" : "kpi-card"} key={metric.label}>
-                  <div className={index === 1 ? "kpi-icon ring-icon" : "kpi-icon"}>
-                    {index === 0 ? "▣" : index === 1 ? "" : index === 2 ? "◷" : "!"}
-                  </div>
-                  <div>
-                    <span>{metric.label}</span>
-                    <strong>{metric.value}</strong>
-                    <small className={metric.tone === "negative" ? "negative" : "positive"}>
-                      {metric.delta}
-                    </small>
-                  </div>
-                </article>
-              ))}
-            </section>
-
-            <section className="dashboard-grid">
-              <article className="panel progress-panel">
+            <section className="overview-chart-grid">
+              <article className="panel overview-chart-card">
                 <div className="panel-header">
-                  <h3>Evolucao do portfolio</h3>
-                </div>
-                <div className="chart-legend">
-                  <span className="solid">Progresso medio (%)</span>
-                  <span className="dashed">Meta</span>
+                  <div>
+                    <span className="eyebrow">Desempenho</span>
+                    <h3>Evolução do portfólio</h3>
+                  </div>
+                  <span className="chart-meta">Últimos {dashboard.portfolio_trend.length || 6} períodos</span>
                 </div>
                 <PortfolioChart points={dashboard.portfolio_trend} />
               </article>
 
-              <article className="panel allocation-panel">
+              <article className="panel overview-allocation-card">
                 <div className="panel-header">
-                  <h3>Alocacao de horas</h3>
-                </div>
-                <div className="donut-row">
-                  <div className="donut" style={{ background: `conic-gradient(var(--blue-600) ${billablePercent}%, #75d3ff ${billablePercent}% 95%, #b6d1e8 95%)` }}>
-                    <div className="donut-center">
-                      <strong>{billablePercent}%</strong>
-                      <span>Rentaveis</span>
-                    </div>
+                  <div>
+                    <span className="eyebrow">Eficiência</span>
+                    <h3>Distribuição de horas</h3>
                   </div>
-                  <div className="legend">
-                    <div>
-                      <span className="legend-dot rentavel" />
-                      <p>
-                        Rentaveis <b>{Math.round(billableHours)}h</b>
-                      </p>
-                    </div>
-                    <div>
-                      <span className="legend-dot nao-rentavel" />
-                      <p>
-                        Nao rentaveis <b>{Math.round(nonBillableHours)}h</b>
-                      </p>
-                    </div>
-                    <div>
-                      <span className="legend-dot outros" />
-                      <p>
-                        Outros <b>{Math.round(otherHours)}h</b>
-                      </p>
-                    </div>
+                  <span className="chart-meta">{Math.round(totalHours)}h no total</span>
+                </div>
+                <div className="overview-donut-layout">
+                  <div
+                    className="overview-donut"
+                    style={{
+                      background: `conic-gradient(var(--blue-700) 0 ${billablePercent}%, #4bb4df ${billablePercent}% ${Math.min(billablePercent + percentage(nonBillableHours, totalHours), 100)}%, #dce4ec ${Math.min(billablePercent + percentage(nonBillableHours, totalHours), 100)}% 100%)`,
+                    }}
+                  >
+                    <div><strong>{billablePercent}%</strong><span>rentáveis</span></div>
                   </div>
-                </div>
-                <p className="total-hours">Total de horas: {Math.round(totalHours)}h</p>
-              </article>
-
-              <article className="panel summary-panel">
-                <div className="panel-header">
-                  <h3>Resumo executivo</h3>
-                  <span className="doc-icon">▤</span>
-                </div>
-                <div className="summary-box">
-                  {dashboard.executive_summary.map((summary, index) => (
-                    <div className={index === 2 ? "summary-item warning" : "summary-item success"} key={summary}>
-                      <span>{index === 2 ? "△" : index === 3 ? "↗" : "✓"}</span>
-                      <p>{summary}</p>
-                    </div>
-                  ))}
+                  <div className="overview-legend">
+                    <div><span className="legend-swatch billable" /><p>Rentáveis <strong>{Math.round(billableHours)}h</strong></p></div>
+                    <div><span className="legend-swatch non-billable" /><p>Não rentáveis <strong>{Math.round(nonBillableHours)}h</strong></p></div>
+                    <div><span className="legend-swatch other" /><p>Outras <strong>{Math.round(otherHours)}h</strong></p></div>
+                  </div>
                 </div>
               </article>
             </section>
 
-            <section className="lower-grid">
-              <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
+            {weeklyStatus && (
+              <section className="overview-project-pulse" aria-label="Resumo do projeto selecionado">
+                <div>
+                  <span>Projeto selecionado</span>
+                  <strong>{weeklyStatus.project_name}</strong>
+                  <small>{weeklyStatus.health_label}</small>
+                </div>
+                <div><span>Avanço real</span><strong>{Math.round(weeklyStatus.progress_real)}%</strong><small>Esperado: {Math.round(weeklyStatus.progress_expected)}%</small></div>
+                <div><span>Go-live</span><strong>{formatDateBR(weeklyStatus.go_live_date)}</strong><small>{weeklyStatus.days_to_go_live} dias restantes</small></div>
+                <div><span>Saldo de horas</span><strong>{Math.round(weeklyStatus.hours.balance)}h</strong><small>{weeklyStatus.hours.billable_rate}% rentáveis</small></div>
+              </section>
+            )}
+
+            <section className="overview-insight-grid">
+              <article className="panel overview-summary-card">
+                <div className="panel-header">
+                  <div>
+                    <span className="eyebrow">Leitura rápida</span>
+                    <h3>Resumo executivo</h3>
+                  </div>
+                  <button className="text-link" onClick={() => openSection("ai")} type="button">
+                    Atualizar com IA
+                  </button>
+                </div>
+                <div className="overview-summary-list">
+                  {dashboard.executive_summary.length ? (
+                    dashboard.executive_summary.slice(0, 4).map((summary, index) => (
+                      <div key={summary}>
+                        <span>{index + 1}</span>
+                        <p>{summary}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-text">O resumo aparecerá quando houver dados consolidados.</p>
+                  )}
+                </div>
+              </article>
               <ActionPanel actions={dashboard.actions} openActions={() => openSection("actions")} />
             </section>
+
+            <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
           </section>
         )}
 
@@ -2057,44 +2041,44 @@ export default function Home() {
 
 function PortfolioChart({ points }: { points: Dashboard["portfolio_trend"] }) {
   const safePoints = points.length ? points : emptyDashboard.portfolio_trend;
-  const coordinates = safePoints
-    .map((point, index) => {
-      const x = (index / Math.max(safePoints.length - 1, 1)) * 700;
-      const y = 230 - (Math.min(point.progress_percent, 100) / 100) * 190;
-      return `${x},${y}`;
-    })
-    .join(" ");
-  const area = `M${coordinates.replaceAll(" ", " L")} L700 230 L0 230 Z`;
+  const chartPoints = safePoints.map((point, index) => ({
+    ...point,
+    x: 22 + (index / Math.max(safePoints.length - 1, 1)) * 656,
+    y: 210 - (Math.min(Math.max(point.progress_percent, 0), 100) / 100) * 180,
+  }));
+  const coordinates = chartPoints.map((point) => `${point.x},${point.y}`).join(" ");
+  const area = `M${coordinates.replaceAll(" ", " L")} L678 210 L22 210 Z`;
 
   return (
-    <div className="line-chart-wrap">
-      <div className="chart-y">
-        <span>100%</span>
-        <span>75%</span>
-        <span>50%</span>
-        <span>25%</span>
-        <span>0%</span>
+    <div
+      aria-label={`Evolução do portfólio: ${safePoints.map((point) => `${point.label}, ${Math.round(point.progress_percent)}%`).join("; ")}`}
+      className="portfolio-chart"
+      role="img"
+    >
+      <div className="portfolio-chart-y" aria-hidden="true">
+        <span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span>
       </div>
-      <div className="line-chart">
-        <div className="goal-line" />
+      <div className="portfolio-chart-main">
+        <div className="portfolio-chart-goal"><span>Meta 75%</span></div>
         <svg viewBox="0 0 700 230" preserveAspectRatio="none">
           <defs>
-            <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0d8cff" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#0d8cff" stopOpacity="0" />
+            <linearGradient id="portfolioAreaFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0871c2" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#0871c2" stopOpacity="0.02" />
             </linearGradient>
           </defs>
-          <path className="area" d={area} />
-          <polyline className="line" points={coordinates} />
-        </svg>
-        <div className="chart-values">
-          {safePoints.map((point) => (
-            <span key={point.label}>{Math.round(point.progress_percent)}%</span>
+          <path className="portfolio-area" d={area} />
+          <polyline className="portfolio-line" points={coordinates} />
+          {chartPoints.map((point) => (
+            <circle className="portfolio-point" cx={point.x} cy={point.y} key={point.label} r="5" />
           ))}
-        </div>
-        <div className="chart-labels">
+        </svg>
+        <div
+          className="portfolio-chart-labels"
+          style={{ gridTemplateColumns: `repeat(${safePoints.length}, minmax(0, 1fr))` }}
+        >
           {safePoints.map((point) => (
-            <span key={point.label}>{point.label}</span>
+            <span key={point.label}><strong>{Math.round(point.progress_percent)}%</strong><small>{point.label}</small></span>
           ))}
         </div>
       </div>
@@ -2279,7 +2263,7 @@ function StatusTable({ dashboard, openProjects }: { dashboard: Dashboard; openPr
           </tr>
         </thead>
         <tbody>
-          {dashboard.initiatives.map((initiative) => (
+          {dashboard.initiatives.slice(0, 6).map((initiative) => (
             <tr key={initiative.project_id}>
               <td>{initiative.client_name}</td>
               <td>
@@ -2308,6 +2292,11 @@ function StatusTable({ dashboard, openProjects }: { dashboard: Dashboard; openPr
               </td>
             </tr>
           ))}
+          {!dashboard.initiatives.length && (
+            <tr>
+              <td colSpan={6}>Nenhuma iniciativa disponível para este período.</td>
+            </tr>
+          )}
         </tbody>
       </table>
       <button className="text-link" onClick={openProjects} type="button">
@@ -2325,7 +2314,7 @@ function ActionPanel({ actions, openActions }: { actions: ActionItem[]; openActi
         <span className="doc-icon">▦</span>
       </div>
       <div className="action-list">
-        {actions.map((action) => (
+        {actions.slice(0, 5).map((action) => (
           <label key={action.id}>
             <input checked={action.status === "done"} readOnly type="checkbox" />
             <span>{action.title}</span>
@@ -2333,6 +2322,7 @@ function ActionPanel({ actions, openActions }: { actions: ActionItem[]; openActi
             <em>{formatDateBR(action.due_date).slice(0, 5)}</em>
           </label>
         ))}
+        {!actions.length && <p className="empty-text">Nenhuma ação pendente no momento.</p>}
       </div>
       <button className="text-link" onClick={openActions} type="button">
         Ver plano completo →
