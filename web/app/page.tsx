@@ -2,8 +2,28 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import {
+  DocumentCenter,
+  ErrorState,
+  ExecutiveSummary,
+  HoursSummary,
+  KpiCard,
+  LoadingState,
+  PendingDecisionsTable,
+  ProgressComparisonChart,
+  ProjectHeader,
+  RisksTable,
+  StatusHistory,
+  WeeklyAchievements,
+  WeeklyClosingWizard,
+} from "./components/portal-components";
+import { percentage } from "./lib/project-metrics";
+
 type Section =
   | "overview"
+  | "closing"
+  | "documents"
+  | "settings"
   | "ai"
   | "projects"
   | "milestones"
@@ -322,44 +342,45 @@ const navGroups: Array<{
   items: Array<{ id: Section; label: string; icon: string }>;
 }> = [
   {
-    title: "Status semanal",
-    description: "Resumo executivo e comunicacao aprovada",
+    title: "Acompanhamento",
+    description: "Visão executiva e comunicação",
     items: [
-      { id: "overview", label: "Dashboard executivo", icon: "D" },
-      { id: "ai", label: "Preencher com IA", icon: "IA" },
-      { id: "requests", label: "Solicitacoes semanais", icon: "S" },
-      { id: "reports", label: "Reports semanais", icon: "R" },
-      { id: "actions", label: "Plano executivo", icon: "A" },
+      { id: "overview", label: "Visão Geral", icon: "VG" },
+      { id: "projects", label: "Projetos", icon: "PR" },
+      { id: "closing", label: "Status Semanais", icon: "ST" },
+      { id: "milestones", label: "Cronograma", icon: "CR" },
+      { id: "deliverables", label: "Entregas", icon: "EN" },
+      { id: "risks", label: "Riscos e Pendências", icon: "RP" },
+      { id: "hours", label: "Horas e Orçamento", icon: "HO" },
     ],
   },
   {
-    title: "Gestao do projeto",
-    description: "Fonte da verdade operacional",
+    title: "Conhecimento",
+    description: "Arquivos, relatórios e administração",
     items: [
-      { id: "projects", label: "Projetos", icon: "P" },
-      { id: "tasks", label: "Tarefas", icon: "T" },
-      { id: "deliverables", label: "Entregas", icon: "E" },
-      { id: "milestones", label: "Marcos", icon: "M" },
-      { id: "risks", label: "Riscos", icon: "!" },
-      { id: "impediments", label: "Impedimentos", icon: "I" },
-      { id: "hours", label: "Horas", icon: "H" },
+      { id: "documents", label: "Documentos", icon: "DO" },
+      { id: "reports", label: "Relatórios", icon: "RE" },
+      { id: "settings", label: "Configurações", icon: "CO" },
     ],
   },
 ];
 
 const sectionTitles: Record<Section, string> = {
-  overview: "Status Semanal",
-  ai: "Status Semanal",
-  reports: "Status Semanal",
-  actions: "Status Semanal",
-  requests: "Status Semanal",
-  projects: "Gestao do Projeto",
-  tasks: "Gestao do Projeto",
-  deliverables: "Gestao do Projeto",
-  milestones: "Gestao do Projeto",
-  risks: "Gestao do Projeto",
-  impediments: "Gestao do Projeto",
-  hours: "Gestao do Projeto",
+  overview: "Visão Geral",
+  closing: "Fechamento Semanal",
+  documents: "Documentos",
+  settings: "Configurações",
+  ai: "Assistente de IA",
+  reports: "Relatórios",
+  actions: "Plano Executivo",
+  requests: "Solicitações Semanais",
+  projects: "Projetos",
+  tasks: "Tarefas",
+  deliverables: "Entregas",
+  milestones: "Cronograma",
+  risks: "Riscos e Pendências",
+  impediments: "Impedimentos",
+  hours: "Horas e Orçamento",
 };
 const today = new Date().toISOString().slice(0, 10);
 const nextMonth = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
@@ -455,6 +476,8 @@ const emptyWeeklyStatus: WeeklyStatus | null = null;
 
 export default function Home() {
   const [activeSection, setActiveSection] = useState<Section>("overview");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [weeklyClosingStep, setWeeklyClosingStep] = useState(1);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [dashboard, setDashboard] = useState<Dashboard>(emptyDashboard);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -477,6 +500,9 @@ export default function Home() {
   const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiPreview, setAiPreview] = useState<AiIntakePreview | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiGenerationError, setAiGenerationError] = useState("");
+  const [aiGenerationMessage, setAiGenerationMessage] = useState("");
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const selectedStatusCycle =
@@ -493,8 +519,36 @@ export default function Home() {
     () => projects.reduce((total, project) => total + project.non_billable_hours, 0),
     [projects],
   );
-  const billablePercent = totalHours ? Math.round((billableHours / totalHours) * 100) : 0;
+  const billablePercent = percentage(billableHours, totalHours);
   const otherHours = Math.max(totalHours - billableHours - nonBillableHours, 0);
+  const validationIssues = useMemo(() => {
+    const issues: string[] = [];
+    const now = today;
+    const staleTasks = tasks.filter(
+      (task) => task.status !== "done" && task.status !== "cancelled" && task.due_date < now,
+    );
+    const completedWithoutEvidence = deliverables.filter(
+      (deliverable) => deliverable.status === "done" && !deliverable.actual_date,
+    );
+    const hoursWithoutTask = timeEntries.filter((entry) => !entry.task_id);
+    const openCriticalRisks = dashboard.risks.filter(
+      (risk) => risk.severity === "critical" && risk.status !== "closed",
+    );
+    const ownerlessImpediments = impediments.filter((item) => !item.owner_name.trim());
+
+    if (staleTasks.length) issues.push(`${staleTasks.length} tarefa(s) com prazo vencido e sem conclusão.`);
+    if (completedWithoutEvidence.length) issues.push(`${completedWithoutEvidence.length} entrega(s) concluída(s) sem data real.`);
+    if (hoursWithoutTask.length) issues.push(`${hoursWithoutTask.length} apontamento(s) de horas sem tarefa vinculada.`);
+    if (openCriticalRisks.length) issues.push(`${openCriticalRisks.length} risco(s) crítico(s) exigem revisão do plano de mitigação.`);
+    if (ownerlessImpediments.length) issues.push(`${ownerlessImpediments.length} pendência(s) sem responsável.`);
+    return issues;
+  }, [dashboard.risks, deliverables, impediments, tasks, timeEntries]);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      setSidebarCollapsed(true);
+    }
+  }, []);
 
   async function apiRequest<T>(path: string, init?: RequestInit, authToken = token): Promise<T> {
     const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -865,25 +919,45 @@ export default function Home() {
   }
 
   async function generateAiPreview() {
-    if (!selectedProject) return;
+    const normalizedPrompt = aiPrompt.trim();
+    setAiGenerationError("");
+    setAiGenerationMessage("");
+
+    if (!selectedProject) {
+      setAiGenerationError("Selecione um projeto antes de gerar o rascunho.");
+      return;
+    }
+    if (normalizedPrompt.length < 20) {
+      setAiGenerationError("Informe pelo menos 20 caracteres sobre a reunião ou o período.");
+      return;
+    }
+
     setError("");
     setMessage("");
+    setAiGenerating(true);
+    setAiPreview(null);
     try {
       const preview = await apiRequest<AiIntakePreview>("/api/v1/ai/intake-preview", {
         method: "POST",
         body: JSON.stringify({
           project_id: selectedProject.id,
-          prompt: aiPrompt,
+          prompt: normalizedPrompt,
         }),
       });
       setAiPreview(preview);
-      setMessage(
+      setAiGenerationMessage(
         preview.provider === "mock"
-          ? "Rascunho mock gerado. Configure Gemini para extracao real."
-          : "Rascunho de IA gerado para revisao.",
+          ? "Rascunho de demonstração gerado. O provedor Gemini não está ativo neste ambiente."
+          : "Rascunho gerado com sucesso. Revise as informações antes de aplicar.",
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao gerar rascunho com IA.");
+      setAiGenerationError(
+        err instanceof Error
+          ? err.message
+          : "Não foi possível gerar o rascunho. Tente novamente.",
+      );
+    } finally {
+      setAiGenerating(false);
     }
   }
 
@@ -1055,7 +1129,7 @@ export default function Home() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={sidebarCollapsed ? "app-shell sidebar-is-collapsed" : "app-shell"}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -1075,6 +1149,8 @@ export default function Home() {
                   className={activeSection === item.id ? "nav-item active" : "nav-item"}
                   key={item.id}
                   onClick={() => openSection(item.id)}
+                  aria-current={activeSection === item.id ? "page" : undefined}
+                  title={sidebarCollapsed ? item.label : undefined}
                   type="button"
                 >
                   <span className="nav-icon">{item.icon}</span>
@@ -1094,8 +1170,13 @@ export default function Home() {
               negocios e tecnologia
             </span>
           </div>
-          <button className="collapse-btn" type="button">
-            ‹ Recolher menu
+          <button
+            aria-label={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+            className="collapse-btn"
+            onClick={() => setSidebarCollapsed((current) => !current)}
+            type="button"
+          >
+            {sidebarCollapsed ? "›" : "‹ Recolher menu"}
           </button>
         </div>
       </aside>
@@ -1103,13 +1184,33 @@ export default function Home() {
       <main className="main">
         <header className="topbar">
           <div className="topbar-left">
-            <button className="menu-btn" onClick={loadData} type="button" aria-label="Sincronizar">
+            <button
+              className="menu-btn"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              type="button"
+              aria-label="Alternar menu"
+            >
               ☰
             </button>
             <h1>{sectionTitles[activeSection]}</h1>
           </div>
 
           <div className="topbar-actions">
+            <label className="project-select">
+              <span>Projeto</span>
+              <select
+                aria-label="Projeto selecionado"
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+              >
+                {!projects.length && <option value="">Nenhum projeto</option>}
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="period-select">
               <span>Ciclo de status</span>
               <select
@@ -1143,13 +1244,75 @@ export default function Home() {
           </div>
         </header>
 
-        {error && <div className="notice error">{error}</div>}
+        {error && <ErrorState message={error} retry={loadData} />}
         {message && <div className="notice success">{message}</div>}
-        {loading && <div className="notice info">Sincronizando dados da API...</div>}
+        {loading && <LoadingState />}
 
         {activeSection === "overview" && (
           <section className="content-section active">
-            <section className="hero-panel">
+            <div className="page-intro">
+              <div>
+                <span className="eyebrow">Carteira de projetos</span>
+                <h2>O que precisa da sua atenção hoje</h2>
+                <p>Indicadores consolidados para decidir rápido e avançar para os detalhes somente quando necessário.</p>
+              </div>
+            </div>
+
+            <ExecutiveSummary
+              content={dashboard.executive_summary}
+              generatedAt={new Date().toLocaleDateString("pt-BR")}
+              reviewer={user?.full_name ?? "Aguardando responsável"}
+              reviewStatus="Revisão necessária"
+              onRegenerate={() => openSection("ai")}
+              onEdit={() => openSection("closing")}
+              onApprove={() => openSection("closing")}
+            />
+
+            <section className="executive-kpi-grid" aria-label="Indicadores principais da carteira">
+              <KpiCard
+                label="Projetos ativos"
+                value={String(projects.filter((project) => project.status !== "completed").length)}
+                comparison="Carteira em execução"
+                help="Projetos que ainda não foram concluídos."
+                tone="info"
+              />
+              <KpiCard
+                label="Em atenção"
+                value={String(projects.filter((project) => project.status === "at_risk").length)}
+                comparison="Exigem acompanhamento"
+                help="Projetos marcados como em atenção."
+                tone="warning"
+              />
+              <KpiCard
+                label="Riscos críticos"
+                value={String(dashboard.risks.filter((risk) => risk.severity === "critical" && risk.status !== "closed").length)}
+                comparison="Riscos ainda abertos"
+                help="Riscos críticos não encerrados."
+                tone="critical"
+              />
+              <KpiCard
+                label="Marcos próximos"
+                value={String(dashboard.milestones.filter((milestone) => milestone.status === "pending").length)}
+                comparison="Com acompanhamento pendente"
+                help="Marcos pendentes retornados pelo dashboard."
+              />
+              <KpiCard
+                label="Status não enviados"
+                value={String(reports.filter((report) => report.status !== "approved" && report.status !== "presented").length)}
+                comparison="Rascunhos e revisões"
+                help="Reports que ainda não foram aprovados ou apresentados."
+                tone="warning"
+              />
+              <KpiCard
+                label="Horas consumidas"
+                value={`${Math.round(totalHours)}h`}
+                comparison={`${billablePercent}% rentáveis`}
+                help="Soma das horas atuais dos projetos; não equivale ao avanço físico."
+                tone="info"
+              />
+            </section>
+
+            <section className="hero-panel legacy-hero">
               <div className="hero-orb">
                 <div className="shield">✓</div>
               </div>
@@ -1174,7 +1337,7 @@ export default function Home() {
 
             {weeklyStatus && <WeeklyStatusDashboard status={weeklyStatus} />}
 
-            <section className="kpi-grid">
+            <section className="kpi-grid legacy-kpi-grid">
               {dashboard.metrics.map((metric, index) => (
                 <article className={metric.tone === "negative" ? "kpi-card alert" : "kpi-card"} key={metric.label}>
                   <div className={index === 1 ? "kpi-icon ring-icon" : "kpi-icon"}>
@@ -1261,6 +1424,49 @@ export default function Home() {
           </section>
         )}
 
+        {activeSection === "closing" && (
+          <section className="content-section active">
+            <div className="page-intro">
+              <div>
+                <span className="eyebrow">Fechamento semanal</span>
+                <h2>Da coleta à publicação, com revisão humana</h2>
+                <p>Um fluxo único para reduzir inconsistências e preservar a rastreabilidade do status enviado ao cliente.</p>
+              </div>
+            </div>
+            <WeeklyClosingWizard
+              step={weeklyClosingStep}
+              setStep={setWeeklyClosingStep}
+              projectName={selectedProject?.name ?? ""}
+              period={selectedStatusCycle ? formatPeriodBR(selectedStatusCycle.period_start, selectedStatusCycle.period_end) : "Semana atual sem ciclo cadastrado"}
+              validationIssues={validationIssues}
+              onCollect={() => {
+                if (selectedProjectId) void loadProjectDetails(selectedProjectId);
+              }}
+              onGenerate={() => openSection("ai")}
+              onReview={() => openSection("reports")}
+              onPublish={() => {
+                const report = reports.find((item) => item.status !== "approved");
+                if (report) void approveReport(report.id);
+                else setMessage("Não há rascunho pendente de aprovação para este projeto.");
+              }}
+            />
+            <StatusHistory reports={reports} />
+          </section>
+        )}
+
+        {activeSection === "documents" && (
+          <section className="content-section active">
+            <div className="page-intro">
+              <div>
+                <span className="eyebrow">Documentos</span>
+                <h2>Arquivos, versões e evidências do projeto</h2>
+                <p>A estrutura está pronta para a integração documental, com categorias adequadas à rotina de projetos.</p>
+              </div>
+            </div>
+            <DocumentCenter />
+          </section>
+        )}
+
         {activeSection === "ai" && (
           <section className="content-section active">
             <div className="section-heading">
@@ -1270,26 +1476,61 @@ export default function Home() {
               </div>
               <button
                 className="primary-btn"
-                disabled={aiPrompt.trim().length < 20}
+                disabled={aiGenerating}
                 onClick={generateAiPreview}
                 type="button"
               >
-                Gerar rascunho
+                {aiGenerating && <span aria-hidden="true" className="button-spinner" />}
+                {aiGenerating ? "Gerando rascunho..." : "Gerar rascunho"}
               </button>
             </div>
             <article className="panel ai-intake-panel">
               <label className="full">
                 Texto da reuniao, e-mail ou anotacao
                 <textarea
-                  onChange={(event) => setAiPrompt(event.target.value)}
+                  aria-describedby="ai-prompt-help"
+                  disabled={aiGenerating}
+                  onChange={(event) => {
+                    setAiPrompt(event.target.value);
+                    if (aiGenerationError) setAiGenerationError("");
+                    if (aiGenerationMessage) setAiGenerationMessage("");
+                  }}
                   placeholder="Cole aqui o resumo da reuniao, numeros da semana, riscos, acoes e solicitacoes..."
                   rows={9}
                   value={aiPrompt}
                 />
               </label>
-              <p className="empty-text">
-                A IA gera apenas um rascunho. Revise antes de aplicar no banco do portal.
+              <p className="ai-prompt-help empty-text" id="ai-prompt-help">
+                A IA gera apenas um rascunho para revisão. {aiPrompt.trim().length} de 20 caracteres mínimos.
               </p>
+              {aiGenerating && (
+                <div aria-live="polite" className="ai-generation-feedback loading" role="status">
+                  <span className="generation-spinner" aria-hidden="true" />
+                  <div>
+                    <strong>Gerando o rascunho...</strong>
+                    <span>A IA está analisando o conteúdo. Isso pode levar até 45 segundos.</span>
+                  </div>
+                </div>
+              )}
+              {!aiGenerating && aiGenerationError && (
+                <div className="ai-generation-feedback error" role="alert">
+                  <div>
+                    <strong>Não foi possível gerar o rascunho.</strong>
+                    <span>{aiGenerationError}</span>
+                  </div>
+                  <button className="secondary-btn" onClick={generateAiPreview} type="button">
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+              {!aiGenerating && aiGenerationMessage && (
+                <div aria-live="polite" className="ai-generation-feedback success" role="status">
+                  <div>
+                    <strong>Geração concluída.</strong>
+                    <span>{aiGenerationMessage}</span>
+                  </div>
+                </div>
+              )}
             </article>
             {aiPreview && (
               <AiPreviewPanel
@@ -1329,6 +1570,60 @@ export default function Home() {
                 + Adicionar projeto
               </button>
             </div>
+            {selectedProject && (
+              <>
+                <ProjectHeader
+                  project={selectedProject}
+                  period={weeklyStatus ? formatPeriodBR(weeklyStatus.period_start, weeklyStatus.period_end) : "Semana atual"}
+                  health={weeklyStatus?.health_label ?? labelFor(selectedProject.status)}
+                  onUpdate={() => loadProjectDetails(selectedProject.id)}
+                  onCloseWeek={() => openSection("closing")}
+                  onGenerateStatus={() => openSection("closing")}
+                  onDocuments={() => openSection("documents")}
+                />
+                <ExecutiveSummary
+                  content={dashboard.executive_summary}
+                  generatedAt={new Date().toLocaleDateString("pt-BR")}
+                  reviewer={user?.full_name ?? "Aguardando responsável"}
+                  reviewStatus={reports[0]?.status === "approved" ? "Aprovado" : "Revisão necessária"}
+                  onRegenerate={() => openSection("ai")}
+                  onEdit={() => openSection("closing")}
+                  onApprove={() => openSection("reports")}
+                />
+                <section className="executive-kpi-grid" aria-label="Indicadores principais do projeto">
+                  <KpiCard label="Avanço geral" value={`${selectedProject.progress_percent}%`} comparison="Realizado acumulado" help="Percentual físico informado no cadastro do projeto." tone="info" />
+                  <KpiCard label="Planejado até hoje" value={`${weeklyStatus?.progress_expected ?? 0}%`} comparison="Curva de referência" help="Progresso linear esperado entre início e conclusão." />
+                  <KpiCard label="Desvio do cronograma" value={`${weeklyStatus?.progress_gap ?? 0} p.p.`} comparison={(weeklyStatus?.progress_gap ?? 0) >= 0 ? "Dentro ou acima do plano" : "Abaixo do planejado"} help="Diferença entre realizado e planejado." tone={(weeklyStatus?.progress_gap ?? 0) < 0 ? "warning" : "positive"} />
+                  <KpiCard label="Entregas concluídas" value={String(deliverables.filter((item) => item.status === "done").length)} comparison={`${deliverables.length} entrega(s) no total`} help="Entregas concluídas no projeto." tone="positive" />
+                  <KpiCard label="Riscos críticos" value={String(dashboard.risks.filter((risk) => risk.project_id === selectedProject.id && risk.severity === "critical" && risk.status !== "closed").length)} comparison="Abertos no momento" help="Riscos críticos ainda não encerrados." tone="critical" />
+                  <KpiCard label="Consumo de horas" value={`${percentage(selectedProject.actual_hours, selectedProject.contracted_hours)}%`} comparison={`${selectedProject.actual_hours}h de ${selectedProject.contracted_hours}h`} help="Consumo contratual; não representa automaticamente avanço entregue." tone="info" />
+                </section>
+                <ProgressComparisonChart
+                  actual={selectedProject.progress_percent}
+                  planned={weeklyStatus?.progress_expected ?? 0}
+                  points={dashboard.portfolio_trend}
+                />
+                <WeeklyAchievements
+                  completed={tasks.filter((task) => task.status === "done")}
+                  inProgress={tasks.filter((task) => task.status === "in_progress")}
+                  next={weeklyStatus?.next_steps ?? tasks.filter((task) => task.status === "todo")}
+                />
+                <PendingDecisionsTable items={impediments} />
+                <RisksTable risks={dashboard.risks.filter((risk) => risk.project_id === selectedProject.id)} />
+                <HoursSummary
+                  contracted={selectedProject.contracted_hours}
+                  consumed={selectedProject.actual_hours}
+                  billable={selectedProject.billable_hours}
+                  nonBillable={selectedProject.non_billable_hours}
+                />
+                <div className="operational-shortcuts">
+                  <button onClick={() => openSection("tasks")} type="button">Ver tarefas</button>
+                  <button onClick={() => openSection("actions")} type="button">Ver plano executivo</button>
+                  <button onClick={() => openSection("requests")} type="button">Ver solicitações</button>
+                  <button onClick={() => openSection("impediments")} type="button">Ver impedimentos</button>
+                </div>
+              </>
+            )}
             <ProjectTable projects={projects} selectProject={setSelectedProjectId} />
           </section>
         )}
@@ -1363,11 +1658,18 @@ export default function Home() {
                 <span className="eyebrow">Governanca</span>
                 <h2>Riscos criticos</h2>
               </div>
-              <button className="primary-btn" onClick={() => setModalMode("risk")} type="button">
-                + Novo risco
-              </button>
+              <div className="heading-actions">
+                <button className="secondary-btn" onClick={() => setModalMode("impediment")} type="button">
+                  + Nova pendência
+                </button>
+                <button className="primary-btn" onClick={() => setModalMode("risk")} type="button">
+                  + Novo risco
+                </button>
+              </div>
             </div>
-            <div className="risk-grid">
+            <PendingDecisionsTable items={impediments} />
+            <RisksTable risks={dashboard.risks.filter((risk) => !selectedProjectId || risk.project_id === selectedProjectId)} />
+            <div className="risk-grid legacy-risk-grid">
               {dashboard.risks.map((risk) => (
                 <article className={`panel risk-card ${risk.severity}`} key={risk.id}>
                   <span>{labelFor(risk.severity)}</span>
@@ -1524,6 +1826,14 @@ export default function Home() {
                 + Apontar horas
               </button>
             </div>
+            {selectedProject && (
+              <HoursSummary
+                contracted={selectedProject.contracted_hours}
+                consumed={selectedProject.actual_hours}
+                billable={selectedProject.billable_hours}
+                nonBillable={selectedProject.non_billable_hours}
+              />
+            )}
             <article className="panel table-panel wide">
               <table>
                 <thead>
@@ -1563,6 +1873,7 @@ export default function Home() {
                 + Gerar rascunho
               </button>
             </div>
+            <StatusHistory reports={reports} />
             <div className="report-list">
               {reports.map((report) => (
                 <article className="panel report-card" key={report.id}>
@@ -1582,6 +1893,39 @@ export default function Home() {
               ))}
               {!reports.length && <EmptyPanel text="Nenhum status report gerado para o projeto selecionado." />}
             </div>
+          </section>
+        )}
+
+        {activeSection === "settings" && (
+          <section className="content-section active">
+            <div className="page-intro">
+              <div>
+                <span className="eyebrow">Configurações</span>
+                <h2>Administração e áreas operacionais</h2>
+                <p>Funções menos frequentes ficam agrupadas aqui sem retirar acesso aos fluxos existentes.</p>
+              </div>
+            </div>
+            <section className="settings-grid">
+              <article className="surface">
+                <h3>Perfil e acesso</h3>
+                <dl className="settings-list">
+                  <div><dt>Usuário</dt><dd>{user?.full_name}</dd></div>
+                  <div><dt>E-mail</dt><dd>{user?.email}</dd></div>
+                  <div><dt>Perfil</dt><dd>{labelFor(user?.role)}</dd></div>
+                </dl>
+                <p className="context-note">O backend preserva os perfis atuais. A separação completa de conteúdo do cliente depende de políticas adicionais de visibilidade.</p>
+              </article>
+              <article className="surface">
+                <h3>Áreas operacionais</h3>
+                <div className="settings-actions">
+                  <button onClick={() => openSection("tasks")} type="button">Tarefas</button>
+                  <button onClick={() => openSection("actions")} type="button">Plano executivo</button>
+                  <button onClick={() => openSection("requests")} type="button">Solicitações semanais</button>
+                  <button onClick={() => openSection("impediments")} type="button">Impedimentos</button>
+                  <button onClick={() => openSection("ai")} type="button">Preenchimento por IA</button>
+                </div>
+              </article>
+            </section>
           </section>
         )}
       </main>
@@ -2167,6 +2511,14 @@ function DataModal({
   onServiceRequestSummarySubmit: (event: FormEvent<HTMLFormElement>) => void;
   onStatusCycleSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") close();
+    }
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [close]);
+
   const title =
     mode === "project"
       ? "Novo projeto"
@@ -2209,13 +2561,19 @@ function DataModal({
                   : onStatusCycleSubmit;
 
   return (
-    <div className="modal">
-      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-        <button className="modal-close" onClick={close} type="button">
+    <div className="modal" onClick={close} role="presentation">
+      <div
+        aria-labelledby="data-modal-title"
+        aria-modal="true"
+        className="modal-card"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <button aria-label="Fechar janela" className="modal-close" onClick={close} type="button">
           ×
         </button>
         <span className="eyebrow">Preencher dados do dashboard</span>
-        <h2>{title}</h2>
+        <h2 id="data-modal-title">{title}</h2>
         <form className="form-grid" onSubmit={submitHandler}>
           {mode !== "project" && (
             <label className="full">
