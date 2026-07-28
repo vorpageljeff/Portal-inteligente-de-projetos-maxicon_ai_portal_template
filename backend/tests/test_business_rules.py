@@ -1,6 +1,7 @@
 from collections.abc import Generator
 
 import pytest
+from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -293,7 +294,11 @@ def test_backend_rejects_invalid_operational_rules(client: TestClient) -> None:
     assert invalid_request_summary.status_code == 422
 
 
-def test_ai_intake_mock_preview_and_apply(client: TestClient) -> None:
+def test_ai_intake_mock_preview_and_apply(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "ai_provider", "mock")
     headers = authenticate(client)
     project_id = create_project(client, headers)
 

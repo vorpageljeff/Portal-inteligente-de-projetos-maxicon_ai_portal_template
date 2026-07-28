@@ -42,6 +42,16 @@ copy .env.local.example .env.local
 npm run dev
 ```
 
+Validações do front-end:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+O front-end usa `/api` como proxy para preservar o contrato com o backend. Em desenvolvimento, configure `NEXT_PUBLIC_API_URL` em `.env.local` quando a API não estiver no destino padrão.
+
 ### Mobile
 
 ```bash
@@ -53,6 +63,15 @@ flutter run
 API: `http://localhost:8000/docs`
 
 Web: `http://localhost:3000`
+
+## Experiência do portal
+
+- navegação executiva por Visão Geral, Projetos, Status Semanais, Cronograma, Entregas, Riscos e Pendências, Horas e Orçamento, Documentos, Relatórios e Configurações;
+- visão de projeto com resumo executivo, até seis KPIs, planejado versus realizado, avanços, pendências, riscos e horas;
+- fechamento semanal em seis etapas, com geração assistida por IA e revisão humana obrigatória;
+- layout responsivo com menu recolhível e tabelas adaptadas para telas menores.
+
+As integrações ainda pendentes estão descritas em `docs/CONTRATOS-API-PENDENTES.md`. O diagnóstico e o guia operacional estão em `docs/DIAGNOSTICO-UX-UI.md` e `docs/GUIA-STATUS-SEMANAL.md`.
 
 ## Deploy
 

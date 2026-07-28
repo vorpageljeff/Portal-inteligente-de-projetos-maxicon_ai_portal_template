@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 node_modules/
 .next/
+*.tsbuildinfo
 build/
 .dart_tool/
 coverage/

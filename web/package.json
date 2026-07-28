@@ -4,7 +4,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start -p ${PORT:-3000}"
+    "start": "next start -p ${PORT:-3000}",
+    "typecheck": "tsc --noEmit",
+    "test": "node --no-warnings --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "next": "15.5.20",

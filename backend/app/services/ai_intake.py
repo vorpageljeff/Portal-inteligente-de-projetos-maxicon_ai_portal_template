@@ -73,6 +73,7 @@ class AiIntakeService:
         payload: dict[str, Any] = {
             "model": settings.ai_model or "gemini-3.5-flash",
             "input": instruction,
+            "generation_config": {"thinking_level": "minimal"},
             "response_format": {
                 "type": "text",
                 "mime_type": "application/json",
@@ -88,13 +89,26 @@ class AiIntakeService:
                 "https://generativelanguage.googleapis.com/v1beta/interactions",
                 headers=headers,
                 json=payload,
-                timeout=45,
+                timeout=httpx.Timeout(
+                    connect=10,
+                    read=settings.ai_timeout_seconds,
+                    write=30,
+                    pool=10,
+                ),
             )
             response.raise_for_status()
+        except httpx.ReadTimeout as exc:
+            raise AiIntakeError(
+                "O Gemini demorou mais que o limite esperado. "
+                "Tente novamente com um texto menor."
+            ) from exc
         except httpx.HTTPError as exc:
             raise AiIntakeError(f"Falha ao chamar Gemini: {exc}") from exc
 
-        raw = response.json()
+        try:
+            raw = response.json()
+        except ValueError as exc:
+            raise AiIntakeError("Gemini retornou uma resposta que nao e JSON.") from exc
         content = self._extract_output(raw)
         try:
             return AiIntakeDraft.model_validate_json(content)
@@ -106,9 +120,26 @@ class AiIntakeService:
             return raw["output_text"]
         if isinstance(raw.get("text"), str):
             return raw["text"]
+
+        steps = raw.get("steps")
+        if isinstance(steps, list):
+            for step in reversed(steps):
+                if not isinstance(step, dict) or step.get("type") != "model_output":
+                    continue
+                content = step.get("content")
+                if not isinstance(content, list):
+                    continue
+                for item in content:
+                    if (
+                        isinstance(item, dict)
+                        and item.get("type") == "text"
+                        and isinstance(item.get("text"), str)
+                    ):
+                        return item["text"]
+
         if "candidates" in raw:
             try:
                 return raw["candidates"][0]["content"]["parts"][0]["text"]
             except (KeyError, IndexError, TypeError):
                 pass
-        return json.dumps(raw)
+        raise AiIntakeError("Gemini respondeu sem conteudo textual.")
