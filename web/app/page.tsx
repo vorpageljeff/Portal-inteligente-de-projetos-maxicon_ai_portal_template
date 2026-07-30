@@ -36,6 +36,7 @@ type Section =
   | "hours"
   | "reports";
 type ModalMode =
+  | "user"
   | "project"
   | "milestone"
   | "risk"
@@ -430,6 +431,11 @@ function friendlyAiError(error: unknown) {
 }
 
 const labels: Record<string, string> = {
+  admin: "Administrador",
+  manager: "Gerente",
+  consultant: "Consultor",
+  executive: "Executivo",
+  client: "Cliente",
   active: "Ativo",
   planning: "Planejamento",
   at_risk: "Em atencao",
@@ -459,7 +465,6 @@ const labels: Record<string, string> = {
   presented: "Apresentado",
   archived: "Arquivado",
   maxicon: "Maxicon",
-  client: "Cliente",
   sap: "SAP",
   third_party: "Terceiro",
   billable: "Rentavel",
@@ -557,6 +562,8 @@ export default function Home() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
   const selectedStatusCycle =
     statusCycles.find((cycle) => cycle.id === selectedStatusCycleId) ?? statusCycles[0];
+  const overviewHealthLabel = weeklyStatus?.health_label ?? dashboard.health_label;
+  const overviewHealthPercent = weeklyStatus?.health_percent ?? dashboard.health_percent;
   const closingReport = selectedStatusCycle
     ? reports.find(
         (report) =>
@@ -1061,6 +1068,21 @@ export default function Home() {
     );
   }
 
+  async function handleUserSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await submitAndReload(
+      "/api/v1/auth/users",
+      {
+        full_name: String(form.get("full_name")),
+        email: String(form.get("email")),
+        password: String(form.get("password")),
+        role: String(form.get("role")),
+      },
+      "Usuário criado. Ele já pode acessar o portal com o e-mail e a senha cadastrados.",
+    );
+  }
+
   async function generateAiPreview() {
     const normalizedPrompt = aiPrompt.trim();
     setAiGenerationError("");
@@ -1189,6 +1211,18 @@ export default function Home() {
         setSelectedProjectId(projectData[0].id);
       }
     } catch (err) {
+      if (
+        authMode === "bootstrap" &&
+        err instanceof Error &&
+        err.message.includes("Bootstrap ja executado")
+      ) {
+        setAuthMode("login");
+        setError("");
+        setMessage(
+          "O administrador inicial já existe. Entre como administrador e use Configurações > Novo usuário.",
+        );
+        return;
+      }
       setError(err instanceof Error ? err.message : "Nao foi possivel autenticar.");
     }
   }
@@ -1397,7 +1431,7 @@ export default function Home() {
                 <option value="">Semana atual sem ciclo</option>
                 {statusCycles.map((cycle) => (
                   <option key={cycle.id} value={cycle.id}>
-                    {cycle.title} - {formatPeriodBR(cycle.period_start, cycle.period_end)}
+                    {cycle.title} - {formatPeriodBR(cycle.period_start, cycle.period_end)} - {labelFor(cycle.status)}
                   </option>
                 ))}
               </select>
@@ -1447,28 +1481,43 @@ export default function Home() {
               </div>
               <div
                 className={`overview-health ${
-                  dashboard.health_label.toLowerCase().includes("cr")
+                  overviewHealthLabel.toLowerCase().includes("cr")
                     ? "critical"
-                    : dashboard.health_label.toLowerCase().includes("aten")
+                    : overviewHealthLabel.toLowerCase().includes("aten")
                       ? "warning"
                       : "positive"
                 }`}
-                style={{ "--health-value": `${Math.max(0, Math.min(dashboard.health_percent, 100))}%` } as CSSProperties}
+                style={{ "--health-value": `${Math.max(0, Math.min(overviewHealthPercent, 100))}%` } as CSSProperties}
               >
                 <div className="overview-health-ring">
                   <div>
-                    <strong>{dashboard.health_percent}%</strong>
+                    <strong>{overviewHealthPercent}%</strong>
                     <span>saúde geral</span>
                   </div>
                 </div>
                 <div>
-                  <span>Status do portfólio</span>
-                  <strong>{dashboard.health_label}</strong>
-                  <small>Atualizado em {new Date().toLocaleDateString("pt-BR")}</small>
+                  <span>{selectedStatusCycle ? "Status do ciclo" : "Status do portfólio"}</span>
+                  <strong>{overviewHealthLabel}</strong>
+                  <small>
+                    {selectedStatusCycle
+                      ? `Referência: ${formatDateBR(selectedStatusCycle.period_end)}`
+                      : `Atualizado em ${new Date().toLocaleDateString("pt-BR")}`}
+                  </small>
                 </div>
               </div>
             </section>
 
+            {selectedStatusCycle && weeklyStatus ? (
+              <>
+                <div className="notice">
+                  Exibindo os dados {selectedStatusCycle.status === "presented" ? "preservados " : ""}
+                  do ciclo {selectedStatusCycle.title} ({labelFor(selectedStatusCycle.status)}), com reunião em{" "}
+                  {formatDateBR(selectedStatusCycle.meeting_date)}.
+                </div>
+                <WeeklyStatusDashboard status={weeklyStatus} />
+              </>
+            ) : (
+              <>
             <section className="overview-kpi-grid" aria-label="Indicadores principais da carteira">
               <KpiCard
                 label="Projetos ativos"
@@ -1579,6 +1628,8 @@ export default function Home() {
             </section>
 
             <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
+              </>
+            )}
           </section>
         )}
 
@@ -2168,6 +2219,19 @@ export default function Home() {
                   <button onClick={() => openSection("ai")} type="button">Preenchimento por IA</button>
                 </div>
               </article>
+              {user?.role === "admin" && (
+                <article className="surface">
+                  <h3>Usuários e acessos</h3>
+                  <p className="context-note">
+                    Crie contas individuais e escolha o perfil de acesso de cada pessoa.
+                  </p>
+                  <div className="settings-actions">
+                    <button onClick={() => setModalMode("user")} type="button">
+                      + Novo usuário
+                    </button>
+                  </div>
+                </article>
+              )}
             </section>
           </section>
         )}
@@ -2181,6 +2245,7 @@ export default function Home() {
           selectedStatusCycle={selectedStatusCycle}
           setSelectedProjectId={setSelectedProjectId}
           close={() => setModalMode(null)}
+          onUserSubmit={handleUserSubmit}
           onProjectSubmit={handleProjectSubmit}
           onMilestoneSubmit={handleMilestoneSubmit}
           onRiskSubmit={handleRiskSubmit}
@@ -2745,6 +2810,7 @@ function DataModal({
   selectedStatusCycle,
   setSelectedProjectId,
   close,
+  onUserSubmit,
   onProjectSubmit,
   onMilestoneSubmit,
   onRiskSubmit,
@@ -2763,6 +2829,7 @@ function DataModal({
   selectedStatusCycle?: StatusCycle;
   setSelectedProjectId: (projectId: string) => void;
   close: () => void;
+  onUserSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onProjectSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onMilestoneSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onRiskSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -2783,45 +2850,49 @@ function DataModal({
   }, [close]);
 
   const title =
-    mode === "project"
-      ? "Novo projeto"
-      : mode === "milestone"
-        ? "Novo marco"
-        : mode === "risk"
-          ? "Novo risco"
-          : mode === "action"
-            ? "Nova acao"
-            : mode === "task"
-              ? "Nova tarefa"
-              : mode === "deliverable"
-                ? "Nova entrega"
-                : mode === "impediment"
-                  ? "Novo impedimento"
-                  : mode === "timeEntry"
-                    ? "Apontar horas"
-                    : mode === "serviceRequests"
-                      ? "Solicitacoes da semana"
-                      : "Ciclo de status";
+    mode === "user"
+      ? "Novo usuário"
+      : mode === "project"
+        ? "Novo projeto"
+        : mode === "milestone"
+          ? "Novo marco"
+          : mode === "risk"
+            ? "Novo risco"
+            : mode === "action"
+              ? "Nova acao"
+              : mode === "task"
+                ? "Nova tarefa"
+                : mode === "deliverable"
+                  ? "Nova entrega"
+                  : mode === "impediment"
+                    ? "Novo impedimento"
+                    : mode === "timeEntry"
+                      ? "Apontar horas"
+                      : mode === "serviceRequests"
+                        ? "Solicitacoes da semana"
+                        : "Ciclo de status";
   const submitHandler =
-    mode === "project"
-      ? onProjectSubmit
-      : mode === "milestone"
-        ? onMilestoneSubmit
-        : mode === "risk"
-          ? onRiskSubmit
-          : mode === "action"
-            ? onActionSubmit
-            : mode === "task"
-              ? onTaskSubmit
-              : mode === "deliverable"
-                ? onDeliverableSubmit
-            : mode === "impediment"
-              ? onImpedimentSubmit
-              : mode === "timeEntry"
-                ? onTimeEntrySubmit
-                : mode === "serviceRequests"
-                  ? onServiceRequestSummarySubmit
-                  : onStatusCycleSubmit;
+    mode === "user"
+      ? onUserSubmit
+      : mode === "project"
+        ? onProjectSubmit
+        : mode === "milestone"
+          ? onMilestoneSubmit
+          : mode === "risk"
+            ? onRiskSubmit
+            : mode === "action"
+              ? onActionSubmit
+              : mode === "task"
+                ? onTaskSubmit
+                : mode === "deliverable"
+                  ? onDeliverableSubmit
+                  : mode === "impediment"
+                    ? onImpedimentSubmit
+                    : mode === "timeEntry"
+                      ? onTimeEntrySubmit
+                      : mode === "serviceRequests"
+                        ? onServiceRequestSummarySubmit
+                        : onStatusCycleSubmit;
 
   return (
     <div className="modal" onClick={close} role="presentation">
@@ -2835,10 +2906,12 @@ function DataModal({
         <button aria-label="Fechar janela" className="modal-close" onClick={close} type="button">
           ×
         </button>
-        <span className="eyebrow">Preencher dados do dashboard</span>
+        <span className="eyebrow">
+          {mode === "user" ? "Administração de acesso" : "Preencher dados do dashboard"}
+        </span>
         <h2 id="data-modal-title">{title}</h2>
         <form className="form-grid" onSubmit={submitHandler}>
-          {mode !== "project" && (
+          {mode !== "project" && mode !== "user" && (
             <label className="full">
               Projeto
               <select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
@@ -2850,6 +2923,7 @@ function DataModal({
               </select>
             </label>
           )}
+          {mode === "user" && <UserFields />}
           {mode === "project" && <ProjectFields />}
           {mode === "milestone" && <MilestoneFields />}
           {mode === "risk" && <RiskFields />}
@@ -2867,12 +2941,41 @@ function DataModal({
               Cancelar
             </button>
             <button className="primary-btn" type="submit">
-              Salvar
+              {mode === "user" ? "Criar usuário" : "Salvar"}
             </button>
           </div>
         </form>
       </div>
     </div>
+  );
+}
+
+function UserFields() {
+  return (
+    <>
+      <label className="full">
+        Nome
+        <input name="full_name" required minLength={3} placeholder="Nome completo" />
+      </label>
+      <label className="full">
+        E-mail
+        <input name="email" required type="email" placeholder="usuario@maxicon.com.br" />
+      </label>
+      <label>
+        Perfil
+        <select name="role" defaultValue="consultant">
+          <option value="admin">Administrador</option>
+          <option value="manager">Gerente</option>
+          <option value="consultant">Consultor</option>
+          <option value="executive">Executivo</option>
+          <option value="client">Cliente</option>
+        </select>
+      </label>
+      <label>
+        Senha inicial
+        <input name="password" required minLength={8} type="password" />
+      </label>
+    </>
   );
 }
 

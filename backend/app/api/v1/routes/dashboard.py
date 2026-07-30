@@ -251,10 +251,11 @@ def weekly_status(
         cycle = db.get(StatusCycle, status_cycle_id)
         if not cycle or cycle.project_id != project_id:
             raise HTTPException(status_code=404, detail="Ciclo de status nao encontrado.")
+        if cycle.dashboard_snapshot:
+            return WeeklyStatusSummary.model_validate(cycle.dashboard_snapshot)
     period_start, period_end = (
         (cycle.period_start, cycle.period_end) if cycle else current_week()
     )
-    today = date.today()
     tasks = list(db.scalars(select(Task).where(Task.project_id == project_id)))
     deliverables = list(db.scalars(select(Deliverable).where(Deliverable.project_id == project_id)))
     impediments = list(db.scalars(select(Impediment).where(Impediment.project_id == project_id)))
@@ -467,7 +468,7 @@ def weekly_status(
         period_start=period_start,
         period_end=period_end,
         go_live_date=project.target_end_date,
-        days_to_go_live=(project.target_end_date - today).days,
+        days_to_go_live=(project.target_end_date - period_end).days,
         progress_real=project.progress_percent,
         progress_expected=expected,
         progress_gap=progress_gap,

@@ -1,4 +1,3 @@
-import json
 from datetime import date, timedelta
 from typing import Any
 
@@ -63,6 +62,7 @@ class AiIntakeService:
 
     def _from_gemini(self, *, project: Project, prompt: str) -> AiIntakeDraft:
         schema = AiIntakeDraft.model_json_schema()
+        model = settings.ai_model or "gemini-3.5-flash"
         instruction = (
             "Extraia do texto um rascunho estruturado para o portal de gestao de projetos. "
             "Use apenas informacoes presentes ou inferencias seguras. Se algo estiver ausente, "
@@ -71,13 +71,19 @@ class AiIntakeService:
             f"Texto do usuario:\n{prompt}"
         )
         payload: dict[str, Any] = {
-            "model": settings.ai_model or "gemini-3.5-flash",
-            "input": instruction,
-            "generation_config": {"thinking_level": "minimal"},
-            "response_format": {
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": schema,
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": instruction}],
+                }
+            ],
+            "generationConfig": {
+                "responseFormat": {
+                    "text": {
+                        "mimeType": "application/json",
+                        "schema": schema,
+                    }
+                }
             },
         }
         headers = {
@@ -86,7 +92,7 @@ class AiIntakeService:
         }
         try:
             response = httpx.post(
-                "https://generativelanguage.googleapis.com/v1beta/interactions",
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
                 headers=headers,
                 json=payload,
                 timeout=httpx.Timeout(
@@ -102,8 +108,13 @@ class AiIntakeService:
                 "O Gemini demorou mais que o limite esperado. "
                 "Tente novamente com um texto menor."
             ) from exc
+        except httpx.HTTPStatusError as exc:
+            detail = self._google_error_detail(exc.response)
+            raise AiIntakeError(
+                f"Gemini recusou a solicitacao ({exc.response.status_code}): {detail}"
+            ) from exc
         except httpx.HTTPError as exc:
-            raise AiIntakeError(f"Falha ao chamar Gemini: {exc}") from exc
+            raise AiIntakeError("Falha de comunicacao com o Gemini.") from exc
 
         try:
             raw = response.json()
@@ -143,3 +154,12 @@ class AiIntakeService:
             except (KeyError, IndexError, TypeError):
                 pass
         raise AiIntakeError("Gemini respondeu sem conteudo textual.")
+
+    @staticmethod
+    def _google_error_detail(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return "resposta invalida do provedor"
+        message = payload.get("error", {}).get("message")
+        return str(message)[:300] if message else "erro nao detalhado pelo provedor"

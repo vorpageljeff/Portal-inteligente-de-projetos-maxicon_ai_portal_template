@@ -84,6 +84,45 @@ def test_api_requires_authentication(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+def test_admin_can_create_user_and_regular_user_cannot(client: TestClient) -> None:
+    admin_headers = authenticate(client)
+    payload = {
+        "email": "consultor@maxicon.com.br",
+        "full_name": "Consultor Maxicon",
+        "password": "senha-forte-456",
+        "role": "consultant",
+    }
+
+    response = client.post("/api/v1/auth/users", headers=admin_headers, json=payload)
+
+    assert response.status_code == 201
+    assert response.json()["role"] == "consultant"
+
+    duplicate_response = client.post("/api/v1/auth/users", headers=admin_headers, json=payload)
+    assert duplicate_response.status_code == 409
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": payload["email"], "password": payload["password"]},
+    )
+    assert login_response.status_code == 200
+    consultant_headers = {
+        "Authorization": f"Bearer {login_response.json()['access_token']}",
+    }
+
+    forbidden_response = client.post(
+        "/api/v1/auth/users",
+        headers=consultant_headers,
+        json={
+            "email": "outro@maxicon.com.br",
+            "full_name": "Outro Usuario",
+            "password": "senha-forte-789",
+            "role": "manager",
+        },
+    )
+    assert forbidden_response.status_code == 403
+
+
 def test_status_report_uses_persisted_business_records(client: TestClient) -> None:
     headers = authenticate(client)
     project_id = create_project(client, headers)
@@ -210,6 +249,21 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert approve_response.status_code == 200
     assert approve_response.json()["status"] == "approved"
 
+    later_time_response = client.post(
+        f"/api/v1/operations/projects/{project_id}/time-entries",
+        headers=headers,
+        json={
+            "task_id": task_response.json()["id"],
+            "user_name": "Outro consultor",
+            "entry_date": "2026-07-09",
+            "hours": 3,
+            "description": "Apontamento lancado depois da apresentacao.",
+            "entry_type": "billable",
+            "approval_status": "approved",
+        },
+    )
+    assert later_time_response.status_code == 201
+
     weekly_response = client.get(
         f"/api/v1/dashboard/weekly-status/{project_id}?status_cycle_id={cycle_id}",
         headers=headers,
@@ -219,6 +273,7 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert weekly["project_name"] == "Implantacao Cotrijal"
     assert weekly["period_start"] == "2026-07-06"
     assert weekly["period_end"] == "2026-07-10"
+    assert weekly["days_to_go_live"] == 52
     assert weekly["hours"]["executed"] == 4
     assert weekly["hours"]["billable_rate"] == 100
     assert any(
@@ -232,6 +287,13 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     )
     assert any("#225135" in point for point in weekly["attention_points"])
     assert any(item["status"] == "in_progress" for item in weekly["next_steps"])
+
+    cycles_response = client.get(
+        f"/api/v1/operations/projects/{project_id}/status-cycles",
+        headers=headers,
+    )
+    assert cycles_response.status_code == 200
+    assert cycles_response.json()[0]["status"] == "presented"
 
 
 def test_backend_rejects_invalid_operational_rules(client: TestClient) -> None:

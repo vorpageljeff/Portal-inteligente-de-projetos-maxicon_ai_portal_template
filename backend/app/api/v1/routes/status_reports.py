@@ -7,7 +7,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import DbSession, get_current_user
-from app.models.operations import ReportStatus, StatusReport, StatusReportVersion
+from app.models.operations import (
+    ReportStatus,
+    StatusCycle,
+    StatusCycleStatus,
+    StatusReport,
+    StatusReportVersion,
+)
 from app.models.project import Project
 from app.models.security import User
 from app.schemas.operations import StatusReportCreate, StatusReportRead
@@ -95,6 +101,21 @@ def approve_report(report_id: uuid.UUID, db: DbSession, user: CurrentUser) -> St
     report.status = ReportStatus.APPROVED
     report.approved_by = user.email
     report.approved_at = datetime.utcnow()
+    cycle = db.scalar(
+        select(StatusCycle)
+        .where(
+            StatusCycle.project_id == report.project_id,
+            StatusCycle.period_start == report.period_start,
+            StatusCycle.period_end == report.period_end,
+        )
+        .order_by(StatusCycle.created_at.desc())
+    )
+    if cycle:
+        from app.api.v1.routes.dashboard import weekly_status
+
+        snapshot = weekly_status(report.project_id, db, user, cycle.id)
+        cycle.dashboard_snapshot = snapshot.model_dump(mode="json")
+        cycle.status = StatusCycleStatus.PRESENTED
     audit(db, actor=user, action="approve", entity_type="status_report", entity_id=str(report.id))
     db.commit()
     db.refresh(report)
