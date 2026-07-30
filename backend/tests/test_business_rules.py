@@ -333,6 +333,79 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert cycles_response.status_code == 200
     assert cycles_response.json()[0]["status"] == "presented"
 
+    update_project_response = client.patch(
+        f"/api/v1/projects/{project_id}",
+        headers=headers,
+        json={
+            "name": "Implantacao Cotrijal",
+            "client_name": "Cotrijal",
+            "description": "Projeto demonstrativo auditavel.",
+            "manager_name": "Jefferson",
+            "start_date": "2026-07-01",
+            "target_end_date": "2026-08-31",
+            "contracted_hours": 240,
+            "progress_percent": 55,
+            "planned_hours": 120,
+            "actual_hours": 7,
+            "billable_hours": 7,
+            "non_billable_hours": 0,
+            "status": "active",
+        },
+    )
+    assert update_project_response.status_code == 200
+
+    second_cycle_response = client.post(
+        f"/api/v1/operations/projects/{project_id}/status-cycles",
+        headers=headers,
+        json={
+            "title": "Status semanal Cotrijal 2",
+            "meeting_date": "2026-07-18",
+            "period_start": "2026-07-13",
+            "period_end": "2026-07-17",
+            "status": "collecting",
+        },
+    )
+    assert second_cycle_response.status_code == 201
+    second_cycle_id = second_cycle_response.json()["id"]
+
+    second_report_response = client.post(
+        "/api/v1/status-reports",
+        headers=headers,
+        json={
+            "project_id": project_id,
+            "period_start": "2026-07-13",
+            "period_end": "2026-07-17",
+        },
+    )
+    assert second_report_response.status_code == 201
+    second_approve_response = client.post(
+        f"/api/v1/status-reports/{second_report_response.json()['id']}/approve",
+        headers=headers,
+    )
+    assert second_approve_response.status_code == 200
+
+    first_cycle_history = client.get(
+        f"/api/v1/dashboard/cycle-history/{project_id}?status_cycle_id={cycle_id}",
+        headers=headers,
+    )
+    assert first_cycle_history.status_code == 200
+    assert [point["progress_percent"] for point in first_cycle_history.json()] == [40]
+
+    second_cycle_history = client.get(
+        f"/api/v1/dashboard/cycle-history/{project_id}?status_cycle_id={second_cycle_id}",
+        headers=headers,
+    )
+    assert second_cycle_history.status_code == 200
+    assert [point["progress_percent"] for point in second_cycle_history.json()] == [40, 55]
+
+    second_weekly_response = client.get(
+        f"/api/v1/dashboard/weekly-status/{project_id}?status_cycle_id={second_cycle_id}",
+        headers=headers,
+    )
+    assert second_weekly_response.status_code == 200
+    assert second_weekly_response.json()["hours"]["executed"] == 0
+    assert second_weekly_response.json()["hours"]["balance"] == 233
+
 
 def test_backend_rejects_invalid_operational_rules(client: TestClient) -> None:
     headers = authenticate(client)

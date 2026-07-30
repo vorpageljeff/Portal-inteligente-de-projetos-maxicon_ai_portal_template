@@ -544,6 +544,7 @@ export default function Home() {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [statusCycles, setStatusCycles] = useState<StatusCycle[]>([]);
   const [selectedStatusCycleId, setSelectedStatusCycleId] = useState("");
+  const [cycleTrend, setCycleTrend] = useState<Dashboard["portfolio_trend"]>([]);
   const [serviceRequestSummaries, setServiceRequestSummaries] = useState<ServiceRequestSummary[]>([]);
   const [weeklyStatus, setWeeklyStatus] = useState<WeeklyStatus | null>(emptyWeeklyStatus);
   const [token, setToken] = useState("");
@@ -560,8 +561,7 @@ export default function Home() {
   const [aiGenerationMessage, setAiGenerationMessage] = useState("");
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[0];
-  const selectedStatusCycle =
-    statusCycles.find((cycle) => cycle.id === selectedStatusCycleId) ?? statusCycles[0];
+  const selectedStatusCycle = statusCycles.find((cycle) => cycle.id === selectedStatusCycleId);
   const overviewHealthLabel = weeklyStatus?.health_label ?? dashboard.health_label;
   const overviewHealthPercent = weeklyStatus?.health_percent ?? dashboard.health_percent;
   const closingReport = selectedStatusCycle
@@ -594,7 +594,7 @@ export default function Home() {
   const portfolioProgress = projects.length
     ? Math.round(projects.reduce((total, project) => total + project.progress_percent, 0) / projects.length)
     : 0;
-  const isCycleView = Boolean(selectedStatusCycle && weeklyStatus);
+  const isCycleView = Boolean(weeklyStatus);
   const weeklyMonitoringNumber = (label: string) => {
     const value = weeklyStatus?.monitoring.find((item) => item.label === label)?.value;
     const parsed = Number(value);
@@ -615,7 +615,7 @@ export default function Home() {
     0,
   );
   const overviewDashboard = useMemo<Dashboard>(() => {
-    if (!selectedStatusCycle || !weeklyStatus) return dashboard;
+    if (!weeklyStatus) return dashboard;
 
     const normalizedActionStatus = (status: string): ActionStatus =>
       status === "done" || status === "in_progress" ? status : "todo";
@@ -624,12 +624,14 @@ export default function Home() {
       ...dashboard,
       health_label: weeklyStatus.health_label,
       health_percent: weeklyStatus.health_percent,
-      portfolio_trend: [
-        {
-          label: formatDateBR(weeklyStatus.period_end),
-          progress_percent: weeklyStatus.progress_real,
-        },
-      ],
+      portfolio_trend: cycleTrend.length
+        ? cycleTrend
+        : [
+            {
+              label: formatDateBR(weeklyStatus.period_end),
+              progress_percent: weeklyStatus.progress_real,
+            },
+          ],
       initiatives: [
         {
           project_id: weeklyStatus.project_id,
@@ -645,7 +647,7 @@ export default function Home() {
       ],
       executive_summary: weeklyStatus.attention_points,
       actions: weeklyStatus.next_steps.map((item, index) => ({
-        id: `${selectedStatusCycle.id}-action-${index}`,
+        id: `${selectedStatusCycle?.id ?? "current"}-action-${index}`,
         project_id: weeklyStatus.project_id,
         title: item.title,
         priority: "medium",
@@ -653,7 +655,7 @@ export default function Home() {
         status: normalizedActionStatus(item.status),
       })),
     };
-  }, [cycleCriticalRisks, dashboard, selectedStatusCycle, weeklyStatus]);
+  }, [cycleCriticalRisks, cycleTrend, dashboard, selectedStatusCycle, weeklyStatus]);
   const { validationIssues, validationWarnings } = useMemo(() => {
     const issues: string[] = [];
     const warnings: string[] = [];
@@ -856,14 +858,18 @@ export default function Home() {
       const cycleData = await apiRequest<StatusCycle[]>(
         `/api/v1/operations/projects/${projectId}/status-cycles`,
       );
-      const effectiveCycleId = cycleData.some((cycle) => cycle.id === statusCycleId)
-        ? statusCycleId
-        : cycleData[0]?.id ?? "";
+      const effectiveCycleId =
+        statusCycleId === "current"
+          ? "current"
+          : cycleData.some((cycle) => cycle.id === statusCycleId)
+            ? statusCycleId
+            : cycleData[0]?.id ?? "current";
       setStatusCycles(cycleData);
       if (effectiveCycleId !== selectedStatusCycleId) {
         setSelectedStatusCycleId(effectiveCycleId);
       }
-      const cycleQuery = effectiveCycleId ? `?status_cycle_id=${effectiveCycleId}` : "";
+      const cycleQuery =
+        effectiveCycleId !== "current" ? `?status_cycle_id=${effectiveCycleId}` : "";
       const [
         taskData,
         deliverableData,
@@ -872,6 +878,7 @@ export default function Home() {
         reportData,
         weeklyData,
         requestSummaryData,
+        trendData,
       ] =
         await Promise.all([
           apiRequest<Task[]>(`/api/v1/operations/projects/${projectId}/tasks`),
@@ -883,6 +890,9 @@ export default function Home() {
           apiRequest<ServiceRequestSummary[]>(
             `/api/v1/operations/projects/${projectId}/service-request-summaries`,
           ),
+          apiRequest<Dashboard["portfolio_trend"]>(
+            `/api/v1/dashboard/cycle-history/${projectId}${cycleQuery}`,
+          ),
         ]);
       setTasks(taskData);
       setDeliverables(deliverableData);
@@ -891,6 +901,7 @@ export default function Home() {
       setReports(reportData);
       setWeeklyStatus(weeklyData);
       setServiceRequestSummaries(requestSummaryData);
+      setCycleTrend(trendData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao carregar dados do projeto.");
     }
@@ -1505,10 +1516,10 @@ export default function Home() {
             <label className="period-select">
               <span>Ciclo de status</span>
               <select
-                value={selectedStatusCycleId}
+                value={selectedStatusCycleId || "current"}
                 onChange={(event) => setSelectedStatusCycleId(event.target.value)}
               >
-                <option value="">Semana atual sem ciclo</option>
+                <option value="current">Semana atual</option>
                 {statusCycles.map((cycle) => (
                   <option key={cycle.id} value={cycle.id}>
                     {cycle.title} - {formatPeriodBR(cycle.period_start, cycle.period_end)} - {labelFor(cycle.status)}
@@ -1650,7 +1661,7 @@ export default function Home() {
                 <div className="panel-header">
                   <div>
                     <span className="eyebrow">Desempenho</span>
-                    <h3>{isCycleView ? "Posição no ciclo" : "Evolução do portfólio"}</h3>
+                    <h3>{isCycleView ? "Evolução do projeto" : "Evolução do portfólio"}</h3>
                   </div>
                   <span className="chart-meta">
                     {isCycleView ? formatPeriodBR(weeklyStatus?.period_start, weeklyStatus?.period_end) : `Últimos ${overviewDashboard.portfolio_trend.length || 6} períodos`}

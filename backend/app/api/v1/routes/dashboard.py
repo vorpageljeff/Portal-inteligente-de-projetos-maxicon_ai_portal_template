@@ -238,6 +238,48 @@ def executive_dashboard(db: DbSession, _: CurrentUser) -> DashboardSummary:
     )
 
 
+@router.get("/cycle-history/{project_id}", response_model=list[PortfolioPoint])
+def cycle_history(
+    project_id: uuid.UUID,
+    db: DbSession,
+    _: CurrentUser,
+    status_cycle_id: uuid.UUID | None = None,
+) -> list[PortfolioPoint]:
+    project = require_project(project_id, db)
+    selected_cycle = None
+    if status_cycle_id:
+        selected_cycle = db.get(StatusCycle, status_cycle_id)
+        if not selected_cycle or selected_cycle.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Ciclo de status nao encontrado.")
+
+    cycles = list(
+        db.scalars(
+            select(StatusCycle)
+            .where(StatusCycle.project_id == project_id)
+            .order_by(StatusCycle.period_end.asc(), StatusCycle.created_at.asc())
+        )
+    )
+    progress_by_period: dict[date, float] = {}
+    for cycle in cycles:
+        if selected_cycle and cycle.period_end > selected_cycle.period_end:
+            continue
+        snapshot = cycle.dashboard_snapshot
+        if not snapshot:
+            continue
+        progress = snapshot.get("progress_real")
+        if isinstance(progress, int | float):
+            progress_by_period[cycle.period_end] = float(progress)
+
+    if not selected_cycle:
+        _, current_period_end = current_week()
+        progress_by_period[current_period_end] = project.progress_percent
+
+    return [
+        PortfolioPoint(label=period_end.strftime("%d/%m"), progress_percent=progress)
+        for period_end, progress in sorted(progress_by_period.items())
+    ]
+
+
 @router.get("/weekly-status/{project_id}", response_model=WeeklyStatusSummary)
 def weekly_status(
     project_id: uuid.UUID,
@@ -476,10 +518,10 @@ def weekly_status(
         health_percent=health_percent,
         hours=WeeklyStatusHours(
             negotiated=project.contracted_hours,
-            executed=executed_hours or project.actual_hours,
-            balance=project.contracted_hours - (executed_hours or project.actual_hours),
+            executed=executed_hours,
+            balance=project.contracted_hours - project.actual_hours,
             billable_rate=billable_rate,
-            exceeded=max((executed_hours or project.actual_hours) - project.contracted_hours, 0),
+            exceeded=max(project.actual_hours - project.contracted_hours, 0),
             outside_project=outside_project_hours,
             travel=travel_hours,
         ),
