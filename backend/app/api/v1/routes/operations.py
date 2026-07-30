@@ -6,12 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import DbSession, get_current_user
+from app.api.deps import DbSession, get_current_user, require_admin
 from app.models.operations import (
     ApprovalStatus,
     Deliverable,
     Impediment,
     StatusCycle,
+    StatusCycleStatus,
     Task,
     TimeEntry,
     TimeEntryType,
@@ -38,6 +39,7 @@ from app.services.audit import audit
 
 router = APIRouter()
 CurrentUser = Annotated[User, Depends(get_current_user)]
+AdminUser = Annotated[User, Depends(require_admin)]
 
 
 def require_project(project_id: uuid.UUID, db: Session) -> Project:
@@ -198,6 +200,52 @@ def create_status_cycle(
     db.commit()
     db.refresh(cycle)
     return cycle
+
+
+@router.post("/projects/{project_id}/status-cycles/{cycle_id}/rebuild-snapshot")
+def rebuild_status_cycle_snapshot(
+    project_id: uuid.UUID,
+    cycle_id: uuid.UUID,
+    db: DbSession,
+    admin: AdminUser,
+) -> dict:
+    require_project(project_id, db)
+    cycle = db.get(StatusCycle, cycle_id)
+    if not cycle or cycle.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Ciclo de status nao encontrado.")
+    if cycle.status not in {
+        StatusCycleStatus.PRESENTED,
+        StatusCycleStatus.APPROVED,
+        StatusCycleStatus.ARCHIVED,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="O ciclo ainda esta aberto e nao possui snapshot apresentado.",
+        )
+
+    previous_snapshot = cycle.dashboard_snapshot
+    cycle.dashboard_snapshot = None
+
+    from app.api.v1.routes.dashboard import weekly_status
+
+    rebuilt = weekly_status(project_id, db, admin, cycle.id)
+    new_snapshot = rebuilt.model_dump(mode="json")
+    cycle.dashboard_snapshot = new_snapshot
+    audit(
+        db,
+        actor=admin,
+        action="rebuild_snapshot",
+        entity_type="status_cycle",
+        entity_id=str(cycle.id),
+        before=previous_snapshot,
+        after=new_snapshot,
+    )
+    db.commit()
+    return {
+        "status": "rebuilt",
+        "status_cycle_id": str(cycle.id),
+        "snapshot": new_snapshot,
+    }
 
 
 @router.get(

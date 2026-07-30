@@ -1127,6 +1127,27 @@ export default function Home() {
     );
   }
 
+  async function rebuildSelectedCycleSnapshot() {
+    if (!selectedProject || !selectedStatusCycle) return;
+    const confirmed = window.confirm(
+      "Esse ciclo já foi apresentado. A atualização vai incluir os lançamentos retroativos e preservar a versão anterior na auditoria. Deseja continuar?",
+    );
+    if (!confirmed) return;
+
+    setError("");
+    setMessage("");
+    try {
+      await apiRequest(
+        `/api/v1/operations/projects/${selectedProject.id}/status-cycles/${selectedStatusCycle.id}/rebuild-snapshot`,
+        { method: "POST" },
+      );
+      await loadProjectDetails(selectedProject.id, selectedStatusCycle.id);
+      setMessage("Ciclo atualizado com os lançamentos retroativos. A versão anterior foi preservada na auditoria.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar os dados históricos do ciclo.");
+    }
+  }
+
   async function handleUserSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -1567,10 +1588,18 @@ export default function Home() {
             </section>
 
             {selectedStatusCycle && weeklyStatus && (
-              <div className="notice">
-                Exibindo os dados {selectedStatusCycle.status === "presented" ? "preservados " : ""}
-                do ciclo {selectedStatusCycle.title} ({labelFor(selectedStatusCycle.status)}), com reunião em{" "}
-                {formatDateBR(selectedStatusCycle.meeting_date)}.
+              <div className="notice cycle-history-notice">
+                <span>
+                  Exibindo os dados {selectedStatusCycle.status === "presented" ? "preservados " : ""}
+                  do ciclo {selectedStatusCycle.title} ({labelFor(selectedStatusCycle.status)}), com reunião em{" "}
+                  {formatDateBR(selectedStatusCycle.meeting_date)}.
+                </span>
+                {user?.role === "admin" &&
+                  ["presented", "approved", "archived"].includes(selectedStatusCycle.status) && (
+                    <button className="secondary-btn" onClick={() => void rebuildSelectedCycleSnapshot()} type="button">
+                      Incluir lançamentos retroativos
+                    </button>
+                  )}
               </div>
             )}
             <section className="overview-kpi-grid" aria-label="Indicadores principais da carteira">

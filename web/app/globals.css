@@ -3046,6 +3046,21 @@ tbody tr:hover {
   margin-bottom: 18px;
 }
 
+.cycle-history-notice {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.cycle-history-notice span {
+  flex: 1;
+}
+
+.cycle-history-notice .secondary-btn {
+  flex: 0 0 auto;
+}
+
 .notice.success {
   background: #edf8f3;
   border-color: #b9dfcf;
@@ -4174,6 +4189,11 @@ tbody tr:hover {
 
   .overview-health {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .cycle-history-notice {
+    align-items: stretch;
     flex-direction: column;
   }
 

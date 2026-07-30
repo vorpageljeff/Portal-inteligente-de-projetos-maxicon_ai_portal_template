@@ -288,6 +288,44 @@ def test_status_report_uses_persisted_business_records(client: TestClient) -> No
     assert any("#225135" in point for point in weekly["attention_points"])
     assert any(item["status"] == "in_progress" for item in weekly["next_steps"])
 
+    create_consultant_response = client.post(
+        "/api/v1/auth/users",
+        headers=headers,
+        json={
+            "email": "retroativo@maxicon.com.br",
+            "full_name": "Consultor Retroativo",
+            "password": "senha-forte-987",
+            "role": "consultant",
+        },
+    )
+    assert create_consultant_response.status_code == 201
+    consultant_login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "retroativo@maxicon.com.br", "password": "senha-forte-987"},
+    )
+    consultant_headers = {
+        "Authorization": f"Bearer {consultant_login_response.json()['access_token']}",
+    }
+    forbidden_rebuild_response = client.post(
+        f"/api/v1/operations/projects/{project_id}/status-cycles/{cycle_id}/rebuild-snapshot",
+        headers=consultant_headers,
+    )
+    assert forbidden_rebuild_response.status_code == 403
+
+    rebuild_response = client.post(
+        f"/api/v1/operations/projects/{project_id}/status-cycles/{cycle_id}/rebuild-snapshot",
+        headers=headers,
+    )
+    assert rebuild_response.status_code == 200
+    assert rebuild_response.json()["snapshot"]["hours"]["executed"] == 7
+
+    rebuilt_weekly_response = client.get(
+        f"/api/v1/dashboard/weekly-status/{project_id}?status_cycle_id={cycle_id}",
+        headers=headers,
+    )
+    assert rebuilt_weekly_response.status_code == 200
+    assert rebuilt_weekly_response.json()["hours"]["executed"] == 7
+
     cycles_response = client.get(
         f"/api/v1/operations/projects/{project_id}/status-cycles",
         headers=headers,
