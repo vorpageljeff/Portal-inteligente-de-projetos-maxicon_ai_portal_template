@@ -591,10 +591,69 @@ export default function Home() {
     [projects],
   );
   const billablePercent = percentage(billableHours, totalHours);
-  const otherHours = Math.max(totalHours - billableHours - nonBillableHours, 0);
   const portfolioProgress = projects.length
     ? Math.round(projects.reduce((total, project) => total + project.progress_percent, 0) / projects.length)
     : 0;
+  const isCycleView = Boolean(selectedStatusCycle && weeklyStatus);
+  const weeklyMonitoringNumber = (label: string) => {
+    const value = weeklyStatus?.monitoring.find((item) => item.label === label)?.value;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const cycleCriticalRisks = weeklyMonitoringNumber("Riscos criticos");
+  const cycleLateTasks = weeklyMonitoringNumber("Tarefas atrasadas");
+  const overviewTotalHours = isCycleView ? weeklyStatus?.hours.executed ?? 0 : totalHours;
+  const overviewBillablePercent = isCycleView ? weeklyStatus?.hours.billable_rate ?? 0 : billablePercent;
+  const overviewBillableHours = isCycleView
+    ? (overviewTotalHours * overviewBillablePercent) / 100
+    : billableHours;
+  const overviewNonBillableHours = isCycleView
+    ? weeklyStatus?.hours.outside_project ?? 0
+    : nonBillableHours;
+  const overviewOtherHours = Math.max(
+    overviewTotalHours - overviewBillableHours - overviewNonBillableHours,
+    0,
+  );
+  const overviewDashboard = useMemo<Dashboard>(() => {
+    if (!selectedStatusCycle || !weeklyStatus) return dashboard;
+
+    const normalizedActionStatus = (status: string): ActionStatus =>
+      status === "done" || status === "in_progress" ? status : "todo";
+
+    return {
+      ...dashboard,
+      health_label: weeklyStatus.health_label,
+      health_percent: weeklyStatus.health_percent,
+      portfolio_trend: [
+        {
+          label: formatDateBR(weeklyStatus.period_end),
+          progress_percent: weeklyStatus.progress_real,
+        },
+      ],
+      initiatives: [
+        {
+          project_id: weeklyStatus.project_id,
+          name: weeklyStatus.project_name,
+          client_name: weeklyStatus.client_name,
+          progress_percent: weeklyStatus.progress_real,
+          variation: weeklyStatus.progress_gap,
+          status_label: weeklyStatus.health_label === "Estavel" ? "active" : "at_risk",
+          milestones_done: weeklyStatus.milestones.filter((item) => item.status === "done").length,
+          milestones_total: weeklyStatus.milestones.length,
+          critical_risks: cycleCriticalRisks,
+        },
+      ],
+      executive_summary: weeklyStatus.attention_points,
+      actions: weeklyStatus.next_steps.map((item, index) => ({
+        id: `${selectedStatusCycle.id}-action-${index}`,
+        project_id: weeklyStatus.project_id,
+        title: item.title,
+        priority: "medium",
+        due_date: item.due_date ?? weeklyStatus.period_end,
+        status: normalizedActionStatus(item.status),
+      })),
+    };
+  }, [cycleCriticalRisks, dashboard, selectedStatusCycle, weeklyStatus]);
   const { validationIssues, validationWarnings } = useMemo(() => {
     const issues: string[] = [];
     const warnings: string[] = [];
@@ -1507,44 +1566,52 @@ export default function Home() {
               </div>
             </section>
 
-            {selectedStatusCycle && weeklyStatus ? (
-              <>
-                <div className="notice">
-                  Exibindo os dados {selectedStatusCycle.status === "presented" ? "preservados " : ""}
-                  do ciclo {selectedStatusCycle.title} ({labelFor(selectedStatusCycle.status)}), com reunião em{" "}
-                  {formatDateBR(selectedStatusCycle.meeting_date)}.
-                </div>
-                <WeeklyStatusDashboard status={weeklyStatus} />
-              </>
-            ) : (
-              <>
+            {selectedStatusCycle && weeklyStatus && (
+              <div className="notice">
+                Exibindo os dados {selectedStatusCycle.status === "presented" ? "preservados " : ""}
+                do ciclo {selectedStatusCycle.title} ({labelFor(selectedStatusCycle.status)}), com reunião em{" "}
+                {formatDateBR(selectedStatusCycle.meeting_date)}.
+              </div>
+            )}
             <section className="overview-kpi-grid" aria-label="Indicadores principais da carteira">
               <KpiCard
-                label="Projetos ativos"
-                value={String(projects.filter((project) => project.status !== "completed").length)}
-                comparison={`${projects.filter((project) => project.status === "at_risk").length} precisam de atenção`}
-                help="Projetos que ainda não foram concluídos."
+                label={isCycleView ? "Avanço do projeto" : "Projetos ativos"}
+                value={
+                  isCycleView
+                    ? `${Math.round(weeklyStatus?.progress_real ?? 0)}%`
+                    : String(projects.filter((project) => project.status !== "completed").length)
+                }
+                comparison={
+                  isCycleView
+                    ? `Esperado: ${Math.round(weeklyStatus?.progress_expected ?? 0)}%`
+                    : `${projects.filter((project) => project.status === "at_risk").length} precisam de atenção`
+                }
+                help={isCycleView ? "Avanço preservado na apresentação do ciclo." : "Projetos que ainda não foram concluídos."}
                 tone="info"
               />
               <KpiCard
-                label="Progresso médio"
-                value={`${portfolioProgress}%`}
-                comparison="Avanço consolidado da carteira"
-                help="Média do progresso informado em todos os projetos."
-                tone="positive"
+                label={isCycleView ? "Desvio do cronograma" : "Progresso médio"}
+                value={isCycleView ? `${weeklyStatus?.progress_gap ?? 0} p.p.` : `${portfolioProgress}%`}
+                comparison={isCycleView ? `${cycleLateTasks} tarefa(s) atrasada(s)` : "Avanço consolidado da carteira"}
+                help={isCycleView ? "Diferença entre o avanço realizado e o esperado no ciclo." : "Média do progresso informado em todos os projetos."}
+                tone={(weeklyStatus?.progress_gap ?? 0) < 0 ? "critical" : "positive"}
               />
               <KpiCard
                 label="Riscos críticos"
-                value={String(dashboard.risks.filter((risk) => risk.severity === "critical" && risk.status !== "closed").length)}
-                comparison="Ainda exigem tratamento"
-                help="Riscos críticos que permanecem abertos."
+                value={String(
+                  isCycleView
+                    ? cycleCriticalRisks
+                    : dashboard.risks.filter((risk) => risk.severity === "critical" && risk.status !== "closed").length,
+                )}
+                comparison={isCycleView ? "Registrados naquela semana" : "Ainda exigem tratamento"}
+                help={isCycleView ? "Total consolidado no snapshot do ciclo." : "Riscos críticos que permanecem abertos."}
                 tone="critical"
               />
               <KpiCard
                 label="Horas rentáveis"
-                value={`${billablePercent}%`}
-                comparison={`${Math.round(billableHours)}h de ${Math.round(totalHours)}h apontadas`}
-                help="Percentual das horas apontadas classificadas como rentáveis."
+                value={`${overviewBillablePercent}%`}
+                comparison={`${Math.round(overviewBillableHours)}h de ${Math.round(overviewTotalHours)}h apontadas`}
+                help={isCycleView ? "Horas preservadas no ciclo selecionado." : "Percentual das horas apontadas classificadas como rentáveis."}
                 tone="info"
               />
             </section>
@@ -1554,11 +1621,13 @@ export default function Home() {
                 <div className="panel-header">
                   <div>
                     <span className="eyebrow">Desempenho</span>
-                    <h3>Evolução do portfólio</h3>
+                    <h3>{isCycleView ? "Posição no ciclo" : "Evolução do portfólio"}</h3>
                   </div>
-                  <span className="chart-meta">Últimos {dashboard.portfolio_trend.length || 6} períodos</span>
+                  <span className="chart-meta">
+                    {isCycleView ? formatPeriodBR(weeklyStatus?.period_start, weeklyStatus?.period_end) : `Últimos ${overviewDashboard.portfolio_trend.length || 6} períodos`}
+                  </span>
                 </div>
-                <PortfolioChart points={dashboard.portfolio_trend} />
+                <PortfolioChart points={overviewDashboard.portfolio_trend} />
               </article>
 
               <article className="panel overview-allocation-card">
@@ -1567,21 +1636,21 @@ export default function Home() {
                     <span className="eyebrow">Eficiência</span>
                     <h3>Distribuição de horas</h3>
                   </div>
-                  <span className="chart-meta">{Math.round(totalHours)}h no total</span>
+                  <span className="chart-meta">{Math.round(overviewTotalHours)}h no total</span>
                 </div>
                 <div className="overview-donut-layout">
                   <div
                     className="overview-donut"
                     style={{
-                      background: `conic-gradient(var(--blue-700) 0 ${billablePercent}%, #4bb4df ${billablePercent}% ${Math.min(billablePercent + percentage(nonBillableHours, totalHours), 100)}%, #dce4ec ${Math.min(billablePercent + percentage(nonBillableHours, totalHours), 100)}% 100%)`,
+                      background: `conic-gradient(var(--blue-700) 0 ${overviewBillablePercent}%, #4bb4df ${overviewBillablePercent}% ${Math.min(overviewBillablePercent + percentage(overviewNonBillableHours, overviewTotalHours), 100)}%, #dce4ec ${Math.min(overviewBillablePercent + percentage(overviewNonBillableHours, overviewTotalHours), 100)}% 100%)`,
                     }}
                   >
-                    <div><strong>{billablePercent}%</strong><span>rentáveis</span></div>
+                    <div><strong>{overviewBillablePercent}%</strong><span>rentáveis</span></div>
                   </div>
                   <div className="overview-legend">
-                    <div><span className="legend-swatch billable" /><p>Rentáveis <strong>{Math.round(billableHours)}h</strong></p></div>
-                    <div><span className="legend-swatch non-billable" /><p>Não rentáveis <strong>{Math.round(nonBillableHours)}h</strong></p></div>
-                    <div><span className="legend-swatch other" /><p>Outras <strong>{Math.round(otherHours)}h</strong></p></div>
+                    <div><span className="legend-swatch billable" /><p>Rentáveis <strong>{Math.round(overviewBillableHours)}h</strong></p></div>
+                    <div><span className="legend-swatch non-billable" /><p>Não rentáveis <strong>{Math.round(overviewNonBillableHours)}h</strong></p></div>
+                    <div><span className="legend-swatch other" /><p>Outras <strong>{Math.round(overviewOtherHours)}h</strong></p></div>
                   </div>
                 </div>
               </article>
@@ -1612,8 +1681,8 @@ export default function Home() {
                   </button>
                 </div>
                 <div className="overview-summary-list">
-                  {dashboard.executive_summary.length ? (
-                    dashboard.executive_summary.slice(0, 4).map((summary, index) => (
+                  {overviewDashboard.executive_summary.length ? (
+                    overviewDashboard.executive_summary.slice(0, 4).map((summary, index) => (
                       <div key={summary}>
                         <span>{index + 1}</span>
                         <p>{summary}</p>
@@ -1624,12 +1693,10 @@ export default function Home() {
                   )}
                 </div>
               </article>
-              <ActionPanel actions={dashboard.actions} openActions={() => openSection("actions")} />
+              <ActionPanel actions={overviewDashboard.actions} openActions={() => openSection("actions")} />
             </section>
 
-            <StatusTable dashboard={dashboard} openProjects={() => openSection("projects")} />
-              </>
-            )}
+            <StatusTable dashboard={overviewDashboard} openProjects={() => openSection("projects")} />
           </section>
         )}
 
