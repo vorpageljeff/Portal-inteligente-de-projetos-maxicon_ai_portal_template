@@ -2792,6 +2792,12 @@ function AiPreviewPanel({
     draft.service_requests.cr_requests +
     draft.service_requests.gap_requests +
     draft.service_requests.adjustment_requests;
+  const totalHours = draft.time_entries.reduce((sum, item) => sum + item.hours, 0);
+  const operationalRecords =
+    draft.tasks.length +
+    draft.deliverables.length +
+    draft.impediments.length +
+    draft.milestones.length;
   return (
     <section className="ai-review-section">
       <div className="ai-review-heading">
@@ -2805,23 +2811,37 @@ function AiPreviewPanel({
         </span>
       </div>
 
-      <div className="ai-preview-grid">
-        <article className="panel">
+      <div className="ai-review-overview">
+        <article className="panel ai-review-summary-card">
           <div className="panel-header">
             <div>
               <span className="eyebrow">Resumo identificado</span>
               <h3>{draft.status_cycle.title}</h3>
             </div>
-            <span className="status-pill yellow">{Math.round(draft.confidence * 100)}% de confiança</span>
+            <span className={`status-pill ${draft.confidence >= 0.8 ? "green" : "yellow"}`}>
+              {Math.round(draft.confidence * 100)}% de confiança
+            </span>
           </div>
-          <p>{draft.summary}</p>
-          <div className="request-number-grid">
-            <div><span>Reunião</span><strong>{formatDateBR(draft.status_cycle.meeting_date)}</strong></div>
-            <div><span>Período</span><strong>{formatPeriodBR(draft.status_cycle.period_start, draft.status_cycle.period_end)}</strong></div>
-            <div><span>Progresso</span><strong>{draft.progress_percent ?? "Não informado"}{draft.progress_percent != null ? "%" : ""}</strong></div>
-            <div><span>Solicitações</span><strong>{totalRequests}</strong></div>
-            <div><span>Horas</span><strong>{Math.round(draft.time_entries.reduce((sum, item) => sum + item.hours, 0))}h</strong></div>
-            <div><span>Registros</span><strong>{draft.tasks.length + draft.deliverables.length + draft.impediments.length + draft.milestones.length}</strong></div>
+          <p className="ai-review-summary-copy">{draft.summary}</p>
+          <div className="ai-cycle-facts">
+            <div className="ai-cycle-fact">
+              <span>Data da reunião</span>
+              <strong>{formatDateBR(draft.status_cycle.meeting_date)}</strong>
+            </div>
+            <div className="ai-cycle-fact ai-cycle-period">
+              <span>Período do ciclo</span>
+              <strong>
+                {formatDateBR(draft.status_cycle.period_start)}
+                <small>até</small>
+                {formatDateBR(draft.status_cycle.period_end)}
+              </strong>
+            </div>
+            <div className="ai-cycle-fact">
+              <span>Progresso acumulado</span>
+              <strong>
+                {draft.progress_percent != null ? `${draft.progress_percent}%` : "Não informado"}
+              </strong>
+            </div>
           </div>
           {!!draft.warnings.length && (
             <div className="ai-warning-list">
@@ -2830,14 +2850,38 @@ function AiPreviewPanel({
               ))}
             </div>
           )}
-          <button className="primary-btn ai-apply-btn" onClick={applyAiPreview} type="button">
-            Confirmar e atualizar o portal
-          </button>
-          <small className="ai-apply-help">Esta ação grava os dados deste rascunho no projeto selecionado.</small>
         </article>
 
-        <article className="panel weekly-list">
-          <div className="panel-header"><h3>Ações detectadas</h3></div>
+        <aside className="panel ai-review-impact-card">
+          <span className="eyebrow">Impacto da confirmação</span>
+          <h3>O que será atualizado</h3>
+          <p>Confira os totais antes de revisar os detalhes.</p>
+          <div className="ai-impact-list">
+            <div><span>Solicitações</span><strong>{totalRequests}</strong></div>
+            <div><span>Horas aprovadas</span><strong>{Math.round(totalHours)}h</strong></div>
+            <div><span>Tarefas e entregas</span><strong>{draft.tasks.length + draft.deliverables.length}</strong></div>
+            <div><span>Marcos e impedimentos</span><strong>{draft.milestones.length + draft.impediments.length}</strong></div>
+            <div><span>Ações</span><strong>{draft.actions.length}</strong></div>
+            <div><span>Riscos</span><strong>{draft.risks.length}</strong></div>
+          </div>
+          <small>{operationalRecords} registros operacionais serão incluídos no projeto.</small>
+        </aside>
+      </div>
+
+      <div className="ai-review-records-heading">
+        <div>
+          <span className="ai-step-label">Conferência</span>
+          <h3>Revise os registros encontrados</h3>
+        </div>
+        <p>Datas, responsáveis e status serão gravados exatamente como aparecem abaixo.</p>
+      </div>
+
+      <div className="ai-review-record-grid">
+        <article className="panel weekly-list ai-review-record-card">
+          <div className="panel-header">
+            <h3>Ações</h3>
+            <span className="ai-record-count">{draft.actions.length}</span>
+          </div>
           <WeeklyItems
             empty="Nenhuma ação detectada."
             items={draft.actions.map((action) => ({
@@ -2848,8 +2892,11 @@ function AiPreviewPanel({
           />
         </article>
 
-        <article className="panel weekly-list">
-          <div className="panel-header"><h3>Riscos detectados</h3></div>
+        <article className="panel weekly-list ai-review-record-card">
+          <div className="panel-header">
+            <h3>Riscos</h3>
+            <span className="ai-record-count">{draft.risks.length}</span>
+          </div>
           <WeeklyItems
             empty="Nenhum risco detectado."
             items={draft.risks.map((risk) => ({
@@ -2859,8 +2906,11 @@ function AiPreviewPanel({
           />
         </article>
 
-        <article className="panel weekly-list">
-          <div className="panel-header"><h3>Tarefas e entregas detectadas</h3></div>
+        <article className="panel weekly-list ai-review-record-card">
+          <div className="panel-header">
+            <h3>Tarefas e entregas</h3>
+            <span className="ai-record-count">{draft.tasks.length + draft.deliverables.length}</span>
+          </div>
           <WeeklyItems
             empty="Nenhuma tarefa ou entrega detectada."
             items={[
@@ -2881,8 +2931,11 @@ function AiPreviewPanel({
           />
         </article>
 
-        <article className="panel weekly-list">
-          <div className="panel-header"><h3>Marcos e impedimentos detectados</h3></div>
+        <article className="panel weekly-list ai-review-record-card">
+          <div className="panel-header">
+            <h3>Marcos e impedimentos</h3>
+            <span className="ai-record-count">{draft.milestones.length + draft.impediments.length}</span>
+          </div>
           <WeeklyItems
             empty="Nenhum marco ou impedimento detectado."
             items={[
@@ -2900,6 +2953,16 @@ function AiPreviewPanel({
             ]}
           />
         </article>
+      </div>
+
+      <div className="ai-confirm-bar">
+        <div>
+          <strong>Os dados estão corretos?</strong>
+          <span>Ao confirmar, o ciclo e os dashboards do projeto serão atualizados.</span>
+        </div>
+        <button className="primary-btn ai-apply-btn" onClick={applyAiPreview} type="button">
+          Confirmar dados e atualizar dashboards
+        </button>
       </div>
     </section>
   );
