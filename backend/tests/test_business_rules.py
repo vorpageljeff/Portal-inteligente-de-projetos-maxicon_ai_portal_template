@@ -490,6 +490,105 @@ def test_ai_intake_mock_preview_and_apply(
     preview = preview_response.json()
     assert preview["provider"] == "mock"
     assert preview["draft"]["status_cycle"]["title"].startswith("Status semanal")
+    preview["draft"].update(
+        {
+            "progress_percent": 55,
+            "status_cycle": {
+                "title": "Status semanal completo",
+                "meeting_date": "2026-07-31",
+                "period_start": "2026-07-27",
+                "period_end": "2026-07-31",
+                "notes": "Ciclo gerado e revisado com IA.",
+            },
+            "service_requests": {
+                "project_requests": 2,
+                "cr_requests": 1,
+                "gap_requests": 1,
+                "adjustment_requests": 0,
+                "open_requests": 2,
+                "completed_requests": 2,
+                "late_requests": 1,
+                "critical_requests": 1,
+                "waiting_maxicon": 0,
+                "waiting_client": 1,
+                "waiting_sap": 1,
+                "highlight_number": "SR-1042",
+                "highlight_subject": "Credenciais bancarias",
+                "highlight_owner": "Ana Souza",
+                "highlight_due_date": "2026-08-04",
+                "highlight_status": "aguardando cliente",
+                "highlight_impact": "Alto",
+            },
+            "tasks": [
+                {
+                    "title": "Concluir testes bancarios",
+                    "owner_name": "Carlos Almeida",
+                    "start_date": "2026-07-27",
+                    "due_date": "2026-07-31",
+                    "estimated_hours": 16,
+                    "progress_percent": 60,
+                    "status": "in_progress",
+                    "priority": "high",
+                    "responsible_org": "maxicon",
+                }
+            ],
+            "deliverables": [
+                {
+                    "title": "Integracao bancaria",
+                    "acceptance_criteria": "Arquivo de retorno validado sem erros.",
+                    "owner_name": "Carlos Almeida",
+                    "due_date": "2026-07-31",
+                    "actual_date": None,
+                    "status": "in_progress",
+                }
+            ],
+            "impediments": [
+                {
+                    "description": "Credenciais bancarias pendentes",
+                    "affected_activity": "Testes bancarios",
+                    "owner_name": "Ana Souza",
+                    "responsible_org": "client",
+                    "impact": "Alto no go-live",
+                    "opened_at": "2026-07-29",
+                    "due_date": "2026-08-04",
+                    "status": "blocked",
+                    "resolution": None,
+                }
+            ],
+            "milestones": [
+                {
+                    "title": "Homologacao bancaria",
+                    "due_date": "2026-07-31",
+                    "status": "pending",
+                }
+            ],
+            "actions": [
+                {
+                    "title": "Enviar credenciais bancarias",
+                    "priority": "high",
+                    "due_date": "2026-08-04",
+                    "status": "todo",
+                }
+            ],
+            "risks": [
+                {
+                    "title": "Credenciais nao recebidas",
+                    "description": "Pode atrasar os testes.",
+                    "severity": "critical",
+                    "status": "open",
+                }
+            ],
+            "time_entries": [
+                {
+                    "user_name": "Carlos Almeida",
+                    "entry_date": "2026-07-31",
+                    "hours": 8,
+                    "description": "Testes bancarios",
+                    "entry_type": "billable",
+                }
+            ],
+        }
+    )
 
     apply_response = client.post(
         "/api/v1/ai/intake-apply",
@@ -500,4 +599,27 @@ def test_ai_intake_mock_preview_and_apply(
     result = apply_response.json()
     assert result["status_cycle_id"]
     assert result["service_request_summary_id"]
+    assert len(result["task_ids"]) == 1
+    assert len(result["deliverable_ids"]) == 1
+    assert len(result["impediment_ids"]) == 1
+    assert len(result["milestone_ids"]) == 1
     assert len(result["action_ids"]) == 1
+    assert len(result["risk_ids"]) == 1
+    assert len(result["time_entry_ids"]) == 1
+
+    project = client.get(f"/api/v1/projects/{project_id}", headers=headers).json()
+    assert project["progress_percent"] == 55
+    assert project["actual_hours"] == 8
+    assert project["billable_hours"] == 8
+
+    dashboard_response = client.get(
+        f"/api/v1/dashboard/weekly-status/{project_id}",
+        headers=headers,
+        params={"status_cycle_id": result["status_cycle_id"]},
+    )
+    assert dashboard_response.status_code == 200
+    dashboard = dashboard_response.json()
+    assert dashboard["progress_real"] == 55
+    assert dashboard["hours"]["executed"] == 8
+    assert dashboard["deliverables_in_progress"][0]["title"] == "Integracao bancaria"
+    assert dashboard["milestones"][0]["title"] == "Homologacao bancaria"

@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.operations import TimeEntryType
 from app.models.work_items import ActionPriority, ActionStatus, RiskSeverity, RiskStatus
+from app.schemas.dashboard import MilestoneCreate
+from app.schemas.operations import DeliverableCreate, ImpedimentCreate, TaskCreate
 
 
 class AiIntakeRequest(BaseModel):
@@ -70,10 +72,15 @@ class AiTimeEntryDraft(BaseModel):
 
 class AiIntakeDraft(BaseModel):
     project_name: str | None = None
+    progress_percent: float | None = Field(default=None, ge=0, le=100)
     confidence: float = Field(default=0.7, ge=0, le=1)
     summary: str
     status_cycle: AiStatusCycleDraft
     service_requests: AiServiceRequestDraft = Field(default_factory=AiServiceRequestDraft)
+    tasks: list[TaskCreate] = Field(default_factory=list)
+    deliverables: list[DeliverableCreate] = Field(default_factory=list)
+    impediments: list[ImpedimentCreate] = Field(default_factory=list)
+    milestones: list[MilestoneCreate] = Field(default_factory=list)
     actions: list[AiActionDraft] = Field(default_factory=list)
     risks: list[AiRiskDraft] = Field(default_factory=list)
     time_entries: list[AiTimeEntryDraft] = Field(default_factory=list)
@@ -93,6 +100,10 @@ class AiIntakeApplyRequest(BaseModel):
 class AiIntakeApplyResult(BaseModel):
     status_cycle_id: uuid.UUID
     service_request_summary_id: uuid.UUID
+    task_ids: list[uuid.UUID]
+    deliverable_ids: list[uuid.UUID]
+    impediment_ids: list[uuid.UUID]
+    milestone_ids: list[uuid.UUID]
     action_ids: list[uuid.UUID]
     risk_ids: list[uuid.UUID]
     time_entry_ids: list[uuid.UUID]

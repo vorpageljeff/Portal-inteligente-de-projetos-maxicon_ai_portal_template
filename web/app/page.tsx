@@ -216,6 +216,7 @@ type ServiceRequestSummary = {
 
 type AiIntakeDraft = {
   project_name?: string | null;
+  progress_percent?: number | null;
   confidence: number;
   summary: string;
   status_cycle: {
@@ -244,6 +245,41 @@ type AiIntakeDraft = {
     highlight_status?: string | null;
     highlight_impact?: string | null;
   };
+  tasks: Array<{
+    title: string;
+    owner_name: string;
+    start_date: string;
+    due_date: string;
+    estimated_hours: number;
+    progress_percent: number;
+    status: "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+    priority: "low" | "medium" | "high" | "critical";
+    responsible_org: "maxicon" | "client" | "sap" | "third_party";
+  }>;
+  deliverables: Array<{
+    title: string;
+    acceptance_criteria: string;
+    owner_name: string;
+    due_date: string;
+    actual_date?: string | null;
+    status: "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+  }>;
+  impediments: Array<{
+    description: string;
+    affected_activity: string;
+    owner_name: string;
+    responsible_org: "maxicon" | "client" | "sap" | "third_party";
+    impact: string;
+    opened_at: string;
+    due_date: string;
+    status: "todo" | "in_progress" | "blocked" | "done" | "cancelled";
+    resolution?: string | null;
+  }>;
+  milestones: Array<{
+    title: string;
+    due_date: string;
+    status: "pending" | "done" | "late";
+  }>;
   actions: Array<{
     title: string;
     priority: "low" | "medium" | "high";
@@ -387,22 +423,55 @@ const sectionTitles: Record<Section, string> = {
 };
 const today = new Date().toISOString().slice(0, 10);
 const nextMonth = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
-const aiPromptExample = `Reunião semanal de 24/07/2026.
+const aiPromptExample = `Ciclo de status:
+- Título: Status semanal - fechamento de julho.
+- Data da reunião: 31/07/2026.
+- Período apurado: 27/07/2026 a 31/07/2026.
+- Progresso acumulado atual do projeto: 78%.
+- Resumo: configuração fiscal concluída e integração bancária em homologação.
 
-Avanços:
-- Configuração fiscal concluída.
-- Testes da integração bancária iniciados.
+Solicitações da semana:
+- Projeto: 2; CR: 1; GAP: 1; ajustes: 0.
+- Abertas: 2; concluídas: 2; atrasadas: 1; críticas: 1.
+- Aguardando Maxicon: 0; cliente: 1; SAP: 1.
+- Destaque: número SR-1042, assunto credenciais bancárias, responsável Ana Souza,
+  prazo 04/08/2026, status aguardando cliente, impacto alto no cronograma.
+
+Tarefas:
+- Concluir testes bancários. Responsável Carlos Almeida, início 27/07/2026,
+  prazo 04/08/2026, estimativa 16h, progresso 60%, em andamento,
+  prioridade alta, responsabilidade Maxicon.
+- Validar cadastros fiscais. Responsável Jefferson Santos, início 27/07/2026,
+  prazo 31/07/2026, estimativa 8h, progresso 100%, concluída,
+  prioridade média, responsabilidade Maxicon.
+
+Entregas:
+- Configuração fiscal. Critério de aceite: cenários fiscais homologados pelo cliente.
+  Responsável Jefferson Santos, prazo 31/07/2026, concluída em 31/07/2026.
+- Integração bancária. Critério de aceite: arquivo de retorno validado sem erros.
+  Responsável Carlos Almeida, prazo 07/08/2026, em andamento.
+
+Marcos:
+- Homologação fiscal, prazo 31/07/2026, concluído.
+- Homologação bancária, prazo 07/08/2026, pendente.
 
 Riscos:
-- Credenciais bancárias ainda não recebidas. Criticidade alta. Responsável: cliente.
+- Credenciais bancárias ainda não recebidas. Severidade crítica, risco aberto.
+
+Impedimentos:
+- Credenciais bancárias pendentes afetam os testes da integração.
+  Responsável Ana Souza, organização cliente, aberto em 29/07/2026,
+  prazo 04/08/2026, impacto alto no go-live, status bloqueado.
 
 Ações:
-- Ana Souza deve enviar as credenciais até 27/07/2026.
-- Carlos Almeida deve concluir o roteiro de testes até 29/07/2026.
+- Ana Souza deve enviar as credenciais até 04/08/2026, prioridade alta, pendente.
+- Carlos Almeida deve concluir o roteiro de testes até 07/08/2026,
+  prioridade alta, em andamento.
 
-Horas:
-- Jefferson Santos, 8 horas em configuração fiscal, tipo rentável.
-- Ana Souza, 4 horas em reunião de alinhamento, tipo reunião.`;
+Horas aprovadas da semana:
+- Jefferson Santos, 31/07/2026, 8h em configuração fiscal, tipo rentável.
+- Carlos Almeida, 31/07/2026, 6h em testes bancários, tipo rentável.
+- Ana Souza, 30/07/2026, 2h em reunião de alinhamento, tipo reunião.`;
 const emptyManualClosingChecks: Record<ManualClosingKey, boolean> = {
   tasks: false,
   deliverables: false,
@@ -2749,8 +2818,10 @@ function AiPreviewPanel({
           <div className="request-number-grid">
             <div><span>Reunião</span><strong>{formatDateBR(draft.status_cycle.meeting_date)}</strong></div>
             <div><span>Período</span><strong>{formatPeriodBR(draft.status_cycle.period_start, draft.status_cycle.period_end)}</strong></div>
+            <div><span>Progresso</span><strong>{draft.progress_percent ?? "Não informado"}{draft.progress_percent != null ? "%" : ""}</strong></div>
             <div><span>Solicitações</span><strong>{totalRequests}</strong></div>
             <div><span>Horas</span><strong>{Math.round(draft.time_entries.reduce((sum, item) => sum + item.hours, 0))}h</strong></div>
+            <div><span>Registros</span><strong>{draft.tasks.length + draft.deliverables.length + draft.impediments.length + draft.milestones.length}</strong></div>
           </div>
           {!!draft.warnings.length && (
             <div className="ai-warning-list">
@@ -2785,6 +2856,48 @@ function AiPreviewPanel({
               title: risk.title,
               status: risk.severity,
             }))}
+          />
+        </article>
+
+        <article className="panel weekly-list">
+          <div className="panel-header"><h3>Tarefas e entregas detectadas</h3></div>
+          <WeeklyItems
+            empty="Nenhuma tarefa ou entrega detectada."
+            items={[
+              ...draft.tasks.map((task) => ({
+                title: task.title,
+                status: task.status,
+                owner: task.owner_name,
+                due_date: task.due_date,
+                progress_percent: task.progress_percent,
+              })),
+              ...draft.deliverables.map((deliverable) => ({
+                title: deliverable.title,
+                status: deliverable.status,
+                owner: deliverable.owner_name,
+                due_date: deliverable.due_date,
+              })),
+            ]}
+          />
+        </article>
+
+        <article className="panel weekly-list">
+          <div className="panel-header"><h3>Marcos e impedimentos detectados</h3></div>
+          <WeeklyItems
+            empty="Nenhum marco ou impedimento detectado."
+            items={[
+              ...draft.milestones.map((milestone) => ({
+                title: milestone.title,
+                status: milestone.status,
+                due_date: milestone.due_date,
+              })),
+              ...draft.impediments.map((impediment) => ({
+                title: impediment.description,
+                status: impediment.status,
+                owner: impediment.owner_name,
+                due_date: impediment.due_date,
+              })),
+            ]}
           />
         </article>
       </div>

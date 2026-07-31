@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,14 +6,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import DbSession, get_current_user
 from app.models.operations import (
     ApprovalStatus,
+    Deliverable,
+    Impediment,
     StatusCycle,
     StatusCycleStatus,
+    Task,
     TimeEntry,
+    TimeEntryType,
     WeeklyServiceRequestSummary,
+    WorkStatus,
 )
 from app.models.project import Project
 from app.models.security import User
-from app.models.work_items import ActionItem, Risk
+from app.models.work_items import ActionItem, Milestone, Risk
 from app.schemas.ai import (
     AiIntakeApplyRequest,
     AiIntakeApplyResult,
@@ -77,18 +83,53 @@ def intake_apply(
     db.add(requests)
     db.flush()
 
+    tasks = [Task(project_id=project.id, **item.model_dump()) for item in draft.tasks]
+    deliverables = [
+        Deliverable(project_id=project.id, **item.model_dump()) for item in draft.deliverables
+    ]
+    impediments = [
+        Impediment(
+            project_id=project.id,
+            closed_at=datetime.utcnow() if item.status == WorkStatus.DONE else None,
+            **item.model_dump(),
+        )
+        for item in draft.impediments
+    ]
+    milestones = [
+        Milestone(project_id=project.id, **item.model_dump()) for item in draft.milestones
+    ]
     actions = [ActionItem(project_id=project.id, **item.model_dump()) for item in draft.actions]
     risks = [Risk(project_id=project.id, **item.model_dump()) for item in draft.risks]
     time_entries = [
         TimeEntry(
             project_id=project.id,
             task_id=None,
-            approval_status=ApprovalStatus.SUBMITTED,
+            approval_status=ApprovalStatus.APPROVED,
             **item.model_dump(),
         )
         for item in draft.time_entries
     ]
-    db.add_all([*actions, *risks, *time_entries])
+    db.add_all(
+        [
+            *tasks,
+            *deliverables,
+            *impediments,
+            *milestones,
+            *actions,
+            *risks,
+            *time_entries,
+        ]
+    )
+
+    if draft.progress_percent is not None:
+        project.progress_percent = draft.progress_percent
+    project.actual_hours += sum(item.hours for item in time_entries)
+    project.billable_hours += sum(
+        item.hours for item in time_entries if item.entry_type == TimeEntryType.BILLABLE
+    )
+    project.non_billable_hours += sum(
+        item.hours for item in time_entries if item.entry_type != TimeEntryType.BILLABLE
+    )
     db.flush()
 
     audit(db, actor=user, action="create", entity_type="ai_intake", entity_id=str(cycle.id))
@@ -97,6 +138,10 @@ def intake_apply(
     return AiIntakeApplyResult(
         status_cycle_id=cycle.id,
         service_request_summary_id=requests.id,
+        task_ids=[item.id for item in tasks],
+        deliverable_ids=[item.id for item in deliverables],
+        impediment_ids=[item.id for item in impediments],
+        milestone_ids=[item.id for item in milestones],
         action_ids=[item.id for item in actions],
         risk_ids=[item.id for item in risks],
         time_entry_ids=[item.id for item in time_entries],

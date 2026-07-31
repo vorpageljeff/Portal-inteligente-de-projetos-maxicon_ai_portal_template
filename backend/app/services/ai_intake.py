@@ -34,6 +34,7 @@ class AiIntakeService:
         end = start + timedelta(days=4)
         return AiIntakeDraft(
             project_name=project.name,
+            progress_percent=getattr(project, "progress_percent", None),
             confidence=0.45,
             summary=(
                 "Rascunho local gerado sem consumo de IA. Configure GEMINI_API_KEY "
@@ -66,9 +67,14 @@ class AiIntakeService:
         schema = AiIntakeDraft.model_json_schema()
         model = settings.ai_model or "gemini-3.5-flash"
         instruction = (
-            "Extraia do texto um rascunho estruturado para o portal de gestao de projetos. "
-            "Use apenas informacoes presentes ou inferencias seguras. Se algo estiver ausente, "
-            "use zero/lista vazia e adicione aviso em warnings. Datas devem usar YYYY-MM-DD. "
+            "Extraia do texto um pacote estruturado completo para atualizar o ciclo semanal "
+            "do portal de gestao de projetos. Preencha, quando informados: data da reuniao, "
+            "periodo, progresso acumulado, solicitacoes, tarefas, entregas, impedimentos, "
+            "marcos, riscos, acoes e horas por profissional. Use apenas informacoes presentes; "
+            "nao invente nomes, datas, percentuais ou quantidades. Se algo estiver ausente, "
+            "use zero, nulo ou lista vazia conforme o schema e descreva a ausencia em warnings. "
+            "O progress_percent representa o progresso acumulado atual do projeto. "
+            "Datas devem usar YYYY-MM-DD. "
             f"Projeto atual: {project.name}. Cliente: {project.client_name}.\n\n"
             f"Texto do usuario:\n{prompt}"
         )
