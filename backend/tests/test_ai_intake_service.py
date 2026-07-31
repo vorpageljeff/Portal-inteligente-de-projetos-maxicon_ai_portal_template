@@ -99,9 +99,10 @@ def test_gemini_uses_generate_content_with_structured_output(
     assert captured["url"].endswith(
         "/v1beta/models/gemini-3.5-flash:generateContent"
     )
-    response_format = captured["json"]["generationConfig"]["responseFormat"]["text"]
-    assert response_format["mimeType"] == "application/json"
-    assert response_format["schema"]["type"] == "object"
+    generation_config = captured["json"]["generationConfig"]
+    assert generation_config["responseMimeType"] == "application/json"
+    assert generation_config["responseJsonSchema"]["type"] == "object"
+    assert "responseFormat" not in generation_config
     assert result.summary == expected.summary
 
 
@@ -125,3 +126,46 @@ def test_gemini_read_timeout_returns_actionable_message(
             project=project,
             prompt="Resumo semanal suficientemente longo para o teste.",
         )
+
+
+def test_gemini_falls_back_to_flash_lite_when_primary_is_busy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = SimpleNamespace(name="Projeto Teste", client_name="Cliente Teste")
+    expected = AiIntakeService()._mock(project=project, prompt="Texto de teste")
+    requested_urls: list[str] = []
+
+    def fake_post(url, **kwargs):
+        requested_urls.append(url)
+        request = httpx.Request("POST", url)
+        if url.endswith("/gemini-3.5-flash:generateContent"):
+            return httpx.Response(
+                503,
+                json={"error": {"message": "high demand"}},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [{"text": expected.model_dump_json()}],
+                        }
+                    }
+                ]
+            },
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(settings, "ai_model", "gemini-3.5-flash")
+
+    result = AiIntakeService()._from_gemini(
+        project=project,
+        prompt="Resumo semanal suficientemente longo para o teste.",
+    )
+
+    assert requested_urls[0].endswith("/gemini-3.5-flash:generateContent")
+    assert requested_urls[1].endswith("/gemini-3.5-flash-lite:generateContent")
+    assert result.summary == expected.summary

@@ -20,6 +20,8 @@ class AiIntakeError(RuntimeError):
 
 
 class AiIntakeService:
+    gemini_fallback_model = "gemini-3.5-flash-lite"
+
     def build_preview(self, *, project: Project, prompt: str) -> tuple[str, AiIntakeDraft]:
         provider = settings.ai_provider.lower()
         if provider == "gemini" and (settings.gemini_api_key or settings.ai_api_key):
@@ -78,43 +80,56 @@ class AiIntakeService:
                 }
             ],
             "generationConfig": {
-                "responseFormat": {
-                    "text": {
-                        "mimeType": "application/json",
-                        "schema": schema,
-                    }
-                }
+                "responseMimeType": "application/json",
+                "responseJsonSchema": schema,
             },
         }
         headers = {
             "Content-Type": "application/json",
             "x-goog-api-key": settings.gemini_api_key or settings.ai_api_key or "",
         }
-        try:
-            response = httpx.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                headers=headers,
-                json=payload,
-                timeout=httpx.Timeout(
-                    connect=10,
-                    read=settings.ai_timeout_seconds,
-                    write=30,
-                    pool=10,
-                ),
-            )
-            response.raise_for_status()
-        except httpx.ReadTimeout as exc:
-            raise AiIntakeError(
-                "O Gemini demorou mais que o limite esperado. "
-                "Tente novamente com um texto menor."
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            detail = self._google_error_detail(exc.response)
-            raise AiIntakeError(
-                f"Gemini recusou a solicitacao ({exc.response.status_code}): {detail}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise AiIntakeError("Falha de comunicacao com o Gemini.") from exc
+        models = [model]
+        if model != self.gemini_fallback_model:
+            models.append(self.gemini_fallback_model)
+
+        response: httpx.Response | None = None
+        for candidate_model in models:
+            try:
+                response = httpx.post(
+                    "https://generativelanguage.googleapis.com/v1beta/"
+                    f"models/{candidate_model}:generateContent",
+                    headers=headers,
+                    json=payload,
+                    timeout=httpx.Timeout(
+                        connect=10,
+                        read=settings.ai_timeout_seconds,
+                        write=30,
+                        pool=10,
+                    ),
+                )
+                response.raise_for_status()
+                break
+            except httpx.ReadTimeout as exc:
+                raise AiIntakeError(
+                    "O Gemini demorou mais que o limite esperado. "
+                    "Tente novamente com um texto menor."
+                ) from exc
+            except httpx.HTTPStatusError as exc:
+                can_fallback = (
+                    exc.response.status_code in {429, 503}
+                    and candidate_model != models[-1]
+                )
+                if can_fallback:
+                    continue
+                detail = self._google_error_detail(exc.response)
+                raise AiIntakeError(
+                    f"Gemini recusou a solicitacao ({exc.response.status_code}): {detail}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise AiIntakeError("Falha de comunicacao com o Gemini.") from exc
+
+        if response is None:
+            raise AiIntakeError("Gemini nao retornou uma resposta.")
 
         try:
             raw = response.json()
