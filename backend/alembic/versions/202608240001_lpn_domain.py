@@ -140,14 +140,16 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             "INSERT INTO organizations (id, name, slug, is_active, created_at) "
-            "VALUES (:id, 'Organização principal', 'principal', true, CURRENT_TIMESTAMP)"
+            "VALUES (CAST(:id AS uuid), 'Organização principal', 'principal', true, "
+            "CURRENT_TIMESTAMP)"
         ).bindparams(id=organization_id)
     )
     op.execute(
         sa.text(
             "INSERT INTO organization_memberships "
             "(id, organization_id, user_id, role, is_active, created_at) "
-            "SELECT md5('membership-' || id::text)::uuid, :organization_id, id, "
+            "SELECT md5('membership-' || id::text)::uuid, "
+            "CAST(:organization_id AS uuid), id, "
             "CASE role::text WHEN 'ADMIN' THEN 'ADMIN'::membershiprole "
             "WHEN 'MANAGER' THEN 'MANAGER'::membershiprole "
             "WHEN 'CONSULTANT' THEN 'BUSINESS_ANALYST'::membershiprole "
@@ -158,15 +160,16 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             "INSERT INTO clients (id, organization_id, name, is_active, created_at) "
-            "SELECT md5(:organization_id || '-client-' || client_name)::uuid, "
-            ":organization_id, client_name, true, CURRENT_TIMESTAMP "
+            "SELECT md5(CAST(:organization_id AS text) || '-client-' || client_name)::uuid, "
+            "CAST(:organization_id AS uuid), client_name, true, CURRENT_TIMESTAMP "
             "FROM projects GROUP BY client_name"
         ).bindparams(organization_id=organization_id)
     )
     op.execute(
         sa.text(
-            "UPDATE projects p SET organization_id=:organization_id, client_id=c.id "
-            "FROM clients c WHERE c.organization_id=:organization_id AND c.name=p.client_name"
+            "UPDATE projects p SET organization_id=CAST(:organization_id AS uuid), "
+            "client_id=c.id FROM clients c WHERE "
+            "c.organization_id=CAST(:organization_id AS uuid) AND c.name=p.client_name"
         ).bindparams(organization_id=organization_id)
     )
     op.alter_column("projects", "organization_id", nullable=False)
