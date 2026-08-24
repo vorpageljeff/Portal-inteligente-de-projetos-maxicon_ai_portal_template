@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 
 from app.api.deps import DbSession, get_current_user
 from app.models.operations import (
@@ -27,26 +28,39 @@ from app.schemas.ai import (
 )
 from app.services.ai_intake import AiIntakeError, AiIntakeService
 from app.services.audit import audit
+from app.services.tenancy import get_membership
 
 router = APIRouter()
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def require_project(project_id, db: DbSession) -> Project:
-    project = db.get(Project, project_id)
+def require_project(project_id, db: DbSession, user: User) -> Project:
+    membership = get_membership(db, user=user)
+    project = db.scalar(
+        select(Project).where(
+            Project.id == project_id,
+            Project.organization_id == membership.organization_id,
+        )
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
     return project
 
 
 @router.post("/intake-preview", response_model=AiIntakePreview)
-def intake_preview(payload: AiIntakeRequest, db: DbSession, _: CurrentUser) -> AiIntakePreview:
-    project = require_project(payload.project_id, db)
+def intake_preview(
+    payload: AiIntakeRequest, db: DbSession, user: CurrentUser
+) -> AiIntakePreview:
+    project = require_project(payload.project_id, db, user)
     try:
-        provider, draft = AiIntakeService().build_preview(project=project, prompt=payload.prompt)
+        provider, analysis = AiIntakeService().build_preview(
+            project=project,
+            prompt=payload.prompt,
+            clarifications=payload.clarifications,
+        )
     except AiIntakeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return AiIntakePreview(provider=provider, draft=draft)
+    return AiIntakePreview(provider=provider, **analysis.model_dump())
 
 
 @router.post(
@@ -59,7 +73,7 @@ def intake_apply(
     db: DbSession,
     user: CurrentUser,
 ) -> AiIntakeApplyResult:
-    project = require_project(payload.project_id, db)
+    project = require_project(payload.project_id, db, user)
     draft = payload.draft
 
     cycle = StatusCycle(

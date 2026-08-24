@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import DbSession, get_current_user
+from app.models.lpn import MembershipRole
 from app.models.operations import (
     ReportStatus,
     StatusCycle,
@@ -19,6 +20,7 @@ from app.models.security import User
 from app.schemas.operations import StatusReportCreate, StatusReportRead
 from app.services.audit import audit
 from app.services.status_report import StatusReportInput, StatusReportService
+from app.services.tenancy import get_membership, require_membership_role
 
 router = APIRouter()
 CurrentUser = Annotated[User, Depends(get_current_user)]
@@ -57,7 +59,13 @@ def generate_status_report(
     db: DbSession,
     user: CurrentUser,
 ) -> StatusReportRead:
-    project = db.get(Project, payload.project_id)
+    membership = get_membership(db, user=user)
+    project = db.scalar(
+        select(Project).where(
+            Project.id == payload.project_id,
+            Project.organization_id == membership.organization_id,
+        )
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
     report = StatusReport(
@@ -79,12 +87,15 @@ def generate_status_report(
 def list_project_reports(
     project_id: uuid.UUID,
     db: DbSession,
-    _: CurrentUser,
+    user: CurrentUser,
 ) -> list[StatusReportRead]:
+    membership = get_membership(db, user=user)
     reports = list(
         db.scalars(
             select(StatusReport)
+            .join(Project, Project.id == StatusReport.project_id)
             .where(StatusReport.project_id == project_id)
+            .where(Project.organization_id == membership.organization_id)
             .order_by(StatusReport.created_at.desc())
         )
     )
@@ -93,7 +104,21 @@ def list_project_reports(
 
 @router.post("/{report_id}/approve", response_model=StatusReportRead)
 def approve_report(report_id: uuid.UUID, db: DbSession, user: CurrentUser) -> StatusReportRead:
-    report = db.get(StatusReport, report_id)
+    membership = get_membership(db, user=user)
+    require_membership_role(
+        membership,
+        MembershipRole.ADMIN,
+        MembershipRole.MANAGER,
+        MembershipRole.APPROVER,
+    )
+    report = db.scalar(
+        select(StatusReport)
+        .join(Project, Project.id == StatusReport.project_id)
+        .where(
+            StatusReport.id == report_id,
+            Project.organization_id == membership.organization_id,
+        )
+    )
     if not report:
         raise HTTPException(status_code=404, detail="Relatorio nao encontrado.")
     if report.status == ReportStatus.APPROVED:

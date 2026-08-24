@@ -3298,6 +3298,101 @@ tbody tr:hover {
   min-width: 210px;
 }
 
+.ai-clarification-panel {
+  border-color: #bdd7ef;
+  gap: 20px;
+  margin-top: 28px;
+}
+
+.ai-question-count {
+  background: #eef6ff;
+  border: 1px solid #c9dff3;
+  border-radius: 999px;
+  color: var(--blue-700);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
+.ai-question-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ai-question-card {
+  align-items: flex-start;
+  background: #f8fbff;
+  border: 1px solid #d7e5f2;
+  border-radius: 12px;
+  display: flex;
+  gap: 14px;
+  padding: 16px;
+}
+
+.ai-question-number {
+  align-items: center;
+  background: var(--blue-700);
+  border-radius: 50%;
+  color: #ffffff;
+  display: inline-flex;
+  flex: 0 0 28px;
+  font-size: 12px;
+  font-weight: 800;
+  height: 28px;
+  justify-content: center;
+}
+
+.ai-question-content {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-question-content strong {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.ai-question-content small,
+.ai-clarification-submit > span {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.ai-question-content textarea {
+  background: #ffffff;
+  border: 1px solid #b8c4d2;
+  border-radius: 10px;
+  color: var(--text);
+  line-height: 1.45;
+  margin-top: 6px;
+  padding: 11px 12px;
+  resize: vertical;
+}
+
+.ai-question-content textarea:focus {
+  border-color: var(--blue-700);
+  box-shadow: 0 0 0 3px rgba(7, 95, 171, 0.12);
+  outline: none;
+}
+
+.ai-clarification-submit {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding-top: 18px;
+}
+
+.ai-clarification-submit .primary-btn {
+  flex: 0 0 auto;
+  min-width: 260px;
+}
+
 .ai-review-section {
   margin-top: 28px;
 }
@@ -4441,6 +4536,16 @@ tbody tr:hover {
   }
 
   .ai-generate-btn {
+    width: 100%;
+  }
+
+  .ai-clarification-submit {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ai-clarification-submit .primary-btn {
+    min-width: 0;
     width: 100%;
   }
 

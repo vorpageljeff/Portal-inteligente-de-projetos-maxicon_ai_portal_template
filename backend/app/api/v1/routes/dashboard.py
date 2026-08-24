@@ -47,14 +47,21 @@ from app.schemas.dashboard import (
     WeeklyStatusSummary,
 )
 from app.services.audit import audit
+from app.services.tenancy import get_membership
 
 router = APIRouter()
 DbSession = Annotated[Session, Depends(get_db)]
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-def require_project(project_id: uuid.UUID, db: Session) -> Project:
-    project = db.get(Project, project_id)
+def require_project(project_id: uuid.UUID, db: Session, user: User) -> Project:
+    membership = get_membership(db, user=user)
+    project = db.scalar(
+        select(Project).where(
+            Project.id == project_id,
+            Project.organization_id == membership.organization_id,
+        )
+    )
     if not project:
         raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
     return project
@@ -117,11 +124,39 @@ def latest_request_summary(
 
 
 @router.get("/executive", response_model=DashboardSummary)
-def executive_dashboard(db: DbSession, _: CurrentUser) -> DashboardSummary:
-    projects = list(db.scalars(select(Project).order_by(Project.created_at.desc())))
-    milestones = list(db.scalars(select(Milestone).order_by(Milestone.due_date.asc())))
-    risks = list(db.scalars(select(Risk).order_by(Risk.created_at.desc())))
-    actions = list(db.scalars(select(ActionItem).order_by(ActionItem.due_date.asc())))
+def executive_dashboard(db: DbSession, user: CurrentUser) -> DashboardSummary:
+    membership = get_membership(db, user=user)
+    project_scope = select(Project.id).where(
+        Project.organization_id == membership.organization_id
+    )
+    projects = list(
+        db.scalars(
+            select(Project)
+            .where(Project.organization_id == membership.organization_id)
+            .order_by(Project.created_at.desc())
+        )
+    )
+    milestones = list(
+        db.scalars(
+            select(Milestone)
+            .where(Milestone.project_id.in_(project_scope))
+            .order_by(Milestone.due_date.asc())
+        )
+    )
+    risks = list(
+        db.scalars(
+            select(Risk)
+            .where(Risk.project_id.in_(project_scope))
+            .order_by(Risk.created_at.desc())
+        )
+    )
+    actions = list(
+        db.scalars(
+            select(ActionItem)
+            .where(ActionItem.project_id.in_(project_scope))
+            .order_by(ActionItem.due_date.asc())
+        )
+    )
 
     active_projects = [project for project in projects if project.status != ProjectStatus.COMPLETED]
     progress_values = [project.progress_percent for project in active_projects]
@@ -242,10 +277,10 @@ def executive_dashboard(db: DbSession, _: CurrentUser) -> DashboardSummary:
 def cycle_history(
     project_id: uuid.UUID,
     db: DbSession,
-    _: CurrentUser,
+    user: CurrentUser,
     status_cycle_id: uuid.UUID | None = None,
 ) -> list[PortfolioPoint]:
-    project = require_project(project_id, db)
+    project = require_project(project_id, db, user)
     selected_cycle = None
     if status_cycle_id:
         selected_cycle = db.get(StatusCycle, status_cycle_id)
@@ -284,10 +319,10 @@ def cycle_history(
 def weekly_status(
     project_id: uuid.UUID,
     db: DbSession,
-    _: CurrentUser,
+    user: CurrentUser,
     status_cycle_id: uuid.UUID | None = None,
 ) -> WeeklyStatusSummary:
-    project = require_project(project_id, db)
+    project = require_project(project_id, db, user)
     cycle = None
     if status_cycle_id:
         cycle = db.get(StatusCycle, status_cycle_id)
@@ -570,8 +605,8 @@ def weekly_status(
 
 
 @router.get("/projects/{project_id}/milestones", response_model=list[MilestoneRead])
-def list_milestones(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[Milestone]:
-    require_project(project_id, db)
+def list_milestones(project_id: uuid.UUID, db: DbSession, user: CurrentUser) -> list[Milestone]:
+    require_project(project_id, db, user)
     return list(db.scalars(select(Milestone).where(Milestone.project_id == project_id)))
 
 
@@ -586,7 +621,7 @@ def create_milestone(
     db: DbSession,
     user: CurrentUser,
 ) -> Milestone:
-    require_project(project_id, db)
+    require_project(project_id, db, user)
     milestone = Milestone(project_id=project_id, **payload.model_dump())
     db.add(milestone)
     db.flush()
@@ -597,8 +632,8 @@ def create_milestone(
 
 
 @router.get("/projects/{project_id}/risks", response_model=list[RiskRead])
-def list_risks(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[Risk]:
-    require_project(project_id, db)
+def list_risks(project_id: uuid.UUID, db: DbSession, user: CurrentUser) -> list[Risk]:
+    require_project(project_id, db, user)
     return list(db.scalars(select(Risk).where(Risk.project_id == project_id)))
 
 
@@ -613,11 +648,11 @@ def create_risk(
     db: DbSession,
     user: CurrentUser,
 ) -> Risk:
-    require_project(project_id, db)
+    require_project(project_id, db, user)
     risk = Risk(project_id=project_id, **payload.model_dump())
     db.add(risk)
     if risk.severity in {RiskSeverity.HIGH, RiskSeverity.CRITICAL}:
-        project = require_project(project_id, db)
+        project = require_project(project_id, db, user)
         project.status = ProjectStatus.AT_RISK
     db.flush()
     audit(db, actor=user, action="create", entity_type="risk", entity_id=str(risk.id))
@@ -627,8 +662,8 @@ def create_risk(
 
 
 @router.get("/projects/{project_id}/actions", response_model=list[ActionItemRead])
-def list_actions(project_id: uuid.UUID, db: DbSession, _: CurrentUser) -> list[ActionItem]:
-    require_project(project_id, db)
+def list_actions(project_id: uuid.UUID, db: DbSession, user: CurrentUser) -> list[ActionItem]:
+    require_project(project_id, db, user)
     return list(db.scalars(select(ActionItem).where(ActionItem.project_id == project_id)))
 
 
@@ -643,7 +678,7 @@ def create_action(
     db: DbSession,
     user: CurrentUser,
 ) -> ActionItem:
-    require_project(project_id, db)
+    require_project(project_id, db, user)
     action = ActionItem(project_id=project_id, **payload.model_dump())
     db.add(action)
     db.flush()
@@ -664,7 +699,7 @@ def update_action(
     db: DbSession,
     user: CurrentUser,
 ) -> ActionItem:
-    require_project(project_id, db)
+    require_project(project_id, db, user)
     action = db.get(ActionItem, action_id)
     if not action or action.project_id != project_id:
         raise HTTPException(status_code=404, detail="Acao nao encontrada no projeto.")

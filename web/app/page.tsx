@@ -1,6 +1,7 @@
 "use client";
 
 import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import {
   DocumentCenter,
@@ -304,7 +305,25 @@ type AiIntakeDraft = {
 
 type AiIntakePreview = {
   provider: string;
-  draft: AiIntakeDraft;
+  analysis: string;
+} & (
+  | { status: "needs_information"; questions: AiValidationQuestion[]; draft: null }
+  | { status: "ready"; questions: AiValidationQuestion[]; draft: AiIntakeDraft }
+);
+
+type AiReadyPreview = Extract<AiIntakePreview, { status: "ready" }>;
+
+type AiValidationQuestion = {
+  field: string;
+  question: string;
+  reason: string;
+  expected_format?: string | null;
+};
+
+type AiClarificationAnswer = {
+  field: string;
+  question: string;
+  answer: string;
 };
 
 type WeeklyStatusItem = {
@@ -625,6 +644,8 @@ export default function Home() {
   const [draggingActionId, setDraggingActionId] = useState<string | null>(null);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiPreview, setAiPreview] = useState<AiIntakePreview | null>(null);
+  const [aiClarifications, setAiClarifications] = useState<AiClarificationAnswer[]>([]);
+  const [aiClarificationDrafts, setAiClarificationDrafts] = useState<Record<string, string>>({});
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiGenerationError, setAiGenerationError] = useState("");
   const [aiGenerationMessage, setAiGenerationMessage] = useState("");
@@ -1243,7 +1264,7 @@ export default function Home() {
     );
   }
 
-  async function generateAiPreview() {
+  async function generateAiPreview(clarifications: AiClarificationAnswer[] = []) {
     const normalizedPrompt = aiPrompt.trim();
     setAiGenerationError("");
     setAiGenerationMessage("");
@@ -1260,20 +1281,29 @@ export default function Home() {
     setError("");
     setMessage("");
     setAiGenerating(true);
-    setAiPreview(null);
+    if (!clarifications.length) {
+      setAiPreview(null);
+      setAiClarifications([]);
+      setAiClarificationDrafts({});
+    }
     try {
       const preview = await apiRequest<AiIntakePreview>("/api/v1/ai/intake-preview", {
         method: "POST",
         body: JSON.stringify({
           project_id: selectedProject.id,
           prompt: normalizedPrompt,
+          clarifications,
         }),
       });
       setAiPreview(preview);
+      setAiClarifications(clarifications);
+      setAiClarificationDrafts({});
       setAiGenerationMessage(
         preview.provider === "mock"
           ? "Rascunho de demonstração gerado. O provedor Gemini não está ativo neste ambiente."
-          : "Rascunho gerado com sucesso. Revise as informações antes de aplicar.",
+          : preview.status === "needs_information"
+            ? "A análise encontrou informações que precisam ser confirmadas."
+            : "Dados validados. Revise o rascunho antes de aplicar.",
       );
     } catch (err) {
       setAiGenerationError(friendlyAiError(err));
@@ -1282,8 +1312,26 @@ export default function Home() {
     }
   }
 
+  async function submitAiClarifications() {
+    if (!aiPreview || aiPreview.status !== "needs_information") return;
+    const unanswered = aiPreview.questions.some(
+      (question, index) => !aiClarificationDrafts[`${index}:${question.field}`]?.trim(),
+    );
+    if (unanswered) {
+      setAiGenerationError("Responda todas as perguntas exibidas para continuar a validação.");
+      return;
+    }
+    const newAnswers = aiPreview.questions.map((question, index) => ({
+      field: question.field,
+      question: question.question,
+      answer: aiClarificationDrafts[`${index}:${question.field}`].trim(),
+    }));
+    const conversation = [...aiClarifications, ...newAnswers];
+    await generateAiPreview(conversation);
+  }
+
   async function applyAiPreview() {
-    if (!selectedProject || !aiPreview) return;
+    if (!selectedProject || !aiPreview?.draft || aiPreview.status !== "ready") return;
     setError("");
     setMessage("");
     try {
@@ -1297,6 +1345,8 @@ export default function Home() {
       setMessage("Rascunho aplicado ao portal e dashboard atualizado.");
       setAiPreview(null);
       setAiPrompt("");
+      setAiClarifications([]);
+      setAiClarificationDrafts({});
       await loadData();
       await loadProjectDetails(selectedProject.id);
       if (aiReturnToClosing) {
@@ -1533,6 +1583,10 @@ export default function Home() {
         </nav>
 
         <div className="sidebar-footer">
+          <Link className="nav-item" href="/lpn">
+            <span className="nav-icon">LPN</span>
+            <span>Levantamentos LPN</span>
+          </Link>
           <div className="anniversary">
             <span className="anniversary-number">25</span>
             <span>
@@ -1887,7 +1941,7 @@ export default function Home() {
               </li>
               <li className={aiPreview ? "active" : ""}>
                 <span>2</span>
-                <div><strong>Revise o rascunho</strong><small>Confira o que a IA identificou.</small></div>
+                <div><strong>Complete e revise</strong><small>Responda pendências e confira os dados.</small></div>
               </li>
               <li>
                 <span>3</span>
@@ -1929,6 +1983,8 @@ export default function Home() {
                       onClick={() => {
                         setAiPrompt("");
                         setAiPreview(null);
+                        setAiClarifications([]);
+                        setAiClarificationDrafts({});
                         setAiGenerationError("");
                         setAiGenerationMessage("");
                       }}
@@ -1965,7 +2021,7 @@ export default function Home() {
                 <button
                   className="primary-btn ai-generate-btn"
                   disabled={aiGenerating || aiPrompt.trim().length < 20 || !selectedProject}
-                  onClick={generateAiPreview}
+                  onClick={() => void generateAiPreview()}
                   type="button"
                 >
                   {aiGenerating && <span aria-hidden="true" className="button-spinner" />}
@@ -1988,7 +2044,17 @@ export default function Home() {
                     <strong>O rascunho não foi gerado.</strong>
                     <span>{aiGenerationError}</span>
                   </div>
-                  <button className="secondary-btn" onClick={generateAiPreview} type="button">
+                  <button
+                    className="secondary-btn"
+                    onClick={() => {
+                      if (aiPreview?.status === "needs_information") {
+                        void submitAiClarifications();
+                      } else {
+                        void generateAiPreview(aiClarifications);
+                      }
+                    }}
+                    type="button"
+                  >
                     Tentar novamente
                   </button>
                 </div>
@@ -1996,13 +2062,26 @@ export default function Home() {
               {!aiGenerating && aiGenerationMessage && (
                 <div aria-live="polite" className="ai-generation-feedback success" role="status">
                   <div>
-                    <strong>Rascunho pronto para revisão.</strong>
+                    <strong>{aiPreview?.status === "needs_information" ? "Validação em andamento." : "Rascunho pronto para revisão."}</strong>
                     <span>{aiGenerationMessage}</span>
                   </div>
                 </div>
               )}
             </article>
-            {aiPreview && (
+            {aiPreview?.status === "needs_information" && (
+              <AiClarificationPanel
+                answers={aiClarificationDrafts}
+                analysis={aiPreview.analysis}
+                disabled={aiGenerating}
+                onAnswerChange={(questionKey, value) => {
+                  setAiClarificationDrafts((current) => ({ ...current, [questionKey]: value }));
+                  if (aiGenerationError) setAiGenerationError("");
+                }}
+                onSubmit={() => void submitAiClarifications()}
+                questions={aiPreview.questions}
+              />
+            )}
+            {aiPreview?.status === "ready" && aiPreview.draft && (
               <AiPreviewPanel
                 applyAiPreview={applyAiPreview}
                 preview={aiPreview}
@@ -2779,12 +2858,77 @@ function EmptyPanel({ text }: { text: string }) {
   );
 }
 
+function AiClarificationPanel({
+  analysis,
+  answers,
+  disabled,
+  onAnswerChange,
+  onSubmit,
+  questions,
+}: {
+  analysis: string;
+  answers: Record<string, string>;
+  disabled: boolean;
+  onAnswerChange: (field: string, value: string) => void;
+  onSubmit: () => void;
+  questions: AiValidationQuestion[];
+}) {
+  const allAnswered = questions.every(
+    (question, index) => answers[`${index}:${question.field}`]?.trim(),
+  );
+  return (
+    <section className="panel ai-clarification-panel">
+      <div className="ai-review-heading">
+        <div>
+          <span className="ai-step-label">Validação assistida</span>
+          <h3>A IA precisa confirmar alguns dados</h3>
+          <p>{analysis}</p>
+        </div>
+        <span className="ai-question-count">
+          {questions.length} {questions.length === 1 ? "pergunta" : "perguntas"}
+        </span>
+      </div>
+
+      <div className="ai-question-list">
+        {questions.map((question, index) => (
+          <label className="ai-question-card" key={`${question.field}-${index}`}>
+            <span className="ai-question-number">{index + 1}</span>
+            <span className="ai-question-content">
+              <strong>{question.question}</strong>
+              <small>{question.reason}</small>
+              <textarea
+                disabled={disabled}
+                onChange={(event) => onAnswerChange(`${index}:${question.field}`, event.target.value)}
+                placeholder={question.expected_format || "Digite a informação ou confirme que não houve movimento."}
+                rows={3}
+                value={answers[`${index}:${question.field}`] ?? ""}
+              />
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <div className="ai-clarification-submit">
+        <span>As respostas serão analisadas junto com as anotações iniciais.</span>
+        <button
+          className="primary-btn"
+          disabled={disabled || !allAnswered}
+          onClick={onSubmit}
+          type="button"
+        >
+          {disabled ? "Validando respostas..." : "Enviar respostas para validação"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function AiPreviewPanel({
   applyAiPreview,
   preview,
 }: {
   applyAiPreview: () => void;
-  preview: AiIntakePreview;
+  preview: AiReadyPreview;
 }) {
   const draft = preview.draft;
   const totalRequests =

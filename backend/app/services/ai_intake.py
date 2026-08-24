@@ -8,6 +8,8 @@ from app.core.config import settings
 from app.models.project import Project
 from app.schemas.ai import (
     AiActionDraft,
+    AiClarificationAnswer,
+    AiIntakeAnalysis,
     AiIntakeDraft,
     AiRiskDraft,
     AiServiceRequestDraft,
@@ -22,11 +24,26 @@ class AiIntakeError(RuntimeError):
 class AiIntakeService:
     gemini_fallback_model = "gemini-3.5-flash-lite"
 
-    def build_preview(self, *, project: Project, prompt: str) -> tuple[str, AiIntakeDraft]:
+    def build_preview(
+        self,
+        *,
+        project: Project,
+        prompt: str,
+        clarifications: list[AiClarificationAnswer] | None = None,
+    ) -> tuple[str, AiIntakeAnalysis]:
         provider = settings.ai_provider.lower()
         if provider == "gemini" and (settings.gemini_api_key or settings.ai_api_key):
-            return "gemini", self._from_gemini(project=project, prompt=prompt)
-        return "mock", self._mock(project=project, prompt=prompt)
+            return "gemini", self._from_gemini(
+                project=project,
+                prompt=prompt,
+                clarifications=clarifications or [],
+            )
+        draft = self._mock(project=project, prompt=prompt)
+        return "mock", AiIntakeAnalysis(
+            status="ready",
+            analysis="Modo de demonstracao: o rascunho local esta pronto para revisao.",
+            draft=draft,
+        )
 
     def _mock(self, *, project: Project, prompt: str) -> AiIntakeDraft:
         today = date.today()
@@ -63,20 +80,36 @@ class AiIntakeService:
             warnings=["IA real nao configurada; nenhum dado foi inferido do texto."],
         )
 
-    def _from_gemini(self, *, project: Project, prompt: str) -> AiIntakeDraft:
-        schema = AiIntakeDraft.model_json_schema()
+    def _from_gemini(
+        self,
+        *,
+        project: Project,
+        prompt: str,
+        clarifications: list[AiClarificationAnswer] | None = None,
+    ) -> AiIntakeAnalysis:
+        schema = AiIntakeAnalysis.model_json_schema()
         model = settings.ai_model or "gemini-3.5-flash"
+        clarification_text = self._format_clarifications(clarifications or [])
         instruction = (
-            "Extraia do texto um pacote estruturado completo para atualizar o ciclo semanal "
-            "do portal de gestao de projetos. Preencha, quando informados: data da reuniao, "
-            "periodo, progresso acumulado, solicitacoes, tarefas, entregas, impedimentos, "
-            "marcos, riscos, acoes e horas por profissional. Use apenas informacoes presentes; "
-            "nao invente nomes, datas, percentuais ou quantidades. Se algo estiver ausente, "
-            "use zero, nulo ou lista vazia conforme o schema e descreva a ausencia em warnings. "
-            "O progress_percent representa o progresso acumulado atual do projeto. "
-            "Datas devem usar YYYY-MM-DD. "
+            "Atue como um analista que valida as informacoes de um ciclo semanal antes de "
+            "atualizar um portal de gestao de projetos. Nunca invente nomes, datas, percentuais "
+            "ou quantidades. Verifique se o usuario informou ou confirmou explicitamente: "
+            "(1) data da reuniao, inicio e fim do periodo e progresso acumulado; "
+            "(2) resumo da evolucao; (3) numeros de solicitacoes, ou que nao houve solicitacoes; "
+            "(4) horas por profissional e tipo, ou que nao houve horas; (5) tarefas, entregas, "
+            "marcos, impedimentos, riscos e acoes, podendo aceitar confirmacao de que nao houve "
+            "registros em uma ou mais categorias. Valide tambem datas fora do periodo, totais "
+            "inconsistentes, progresso fora de 0 a 100 e informacoes contraditorias. "
+            "Se faltar algo essencial, retorne status needs_information, draft nulo e no maximo "
+            "5 perguntas objetivas. Agrupe categorias relacionadas em uma unica pergunta para "
+            "nao cansar o usuario. Explique em reason por que cada resposta e necessaria. "
+            "Quando tudo estiver informado ou explicitamente confirmado como inexistente, "
+            "retorne status ready, sem perguntas, e monte o draft completo. Use zero ou listas "
+            "vazias apenas para categorias que o usuario confirmou que nao tiveram movimento. "
+            "O progress_percent e o progresso acumulado atual. Datas devem usar YYYY-MM-DD. "
             f"Projeto atual: {project.name}. Cliente: {project.client_name}.\n\n"
-            f"Texto do usuario:\n{prompt}"
+            f"Anotacoes iniciais do usuario:\n{prompt}"
+            f"{clarification_text}"
         )
         payload: dict[str, Any] = {
             "contents": [
@@ -143,9 +176,19 @@ class AiIntakeService:
             raise AiIntakeError("Gemini retornou uma resposta que nao e JSON.") from exc
         content = self._extract_output(raw)
         try:
-            return AiIntakeDraft.model_validate_json(content)
+            return AiIntakeAnalysis.model_validate_json(content)
         except ValidationError as exc:
             raise AiIntakeError("Gemini retornou JSON fora do contrato esperado.") from exc
+
+    @staticmethod
+    def _format_clarifications(clarifications: list[AiClarificationAnswer]) -> str:
+        if not clarifications:
+            return ""
+        lines = ["\n\nPerguntas anteriores e respostas confirmadas pelo usuario:"]
+        for item in clarifications:
+            lines.append(f"- Campo {item.field}. Pergunta: {item.question}")
+            lines.append(f"  Resposta: {item.answer}")
+        return "\n".join(lines)
 
     def _extract_output(self, raw: dict[str, Any]) -> str:
         if isinstance(raw.get("output_text"), str):

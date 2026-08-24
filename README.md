@@ -1,6 +1,6 @@
 # Maxicon AI Project Portal
 
-MVP para gestão de projetos, horas, riscos, pendências e geração de status report semanal com IA.
+Portal para gestão de projetos, horas, riscos, status semanal e elaboração versionada de LPN com IA rastreável.
 
 ## Stack
 
@@ -64,11 +64,15 @@ API: `http://localhost:8000/docs`
 
 Web: `http://localhost:3000`
 
+Módulo de LPN: `http://localhost:3000/lpn`
+
 ## Experiência do portal
 
 - navegação executiva por Visão Geral, Projetos, Status Semanais, Cronograma, Entregas, Riscos e Pendências, Horas e Orçamento, Documentos, Relatórios e Configurações;
 - visão de projeto com resumo executivo, até seis KPIs, planejado versus realizado, avanços, pendências, riscos e horas;
 - fechamento semanal em seis etapas, com geração assistida por IA e revisão humana obrigatória;
+- levantamento de LPN com dados gerais, processo atual, objetivo, diagrama, processo proposto, restrições, evidências e aceite;
+- versões aprovadas imutáveis, geração DOCX/PDF/JSON/SVG e registro das decisões sobre IA;
 - layout responsivo com menu recolhível e tabelas adaptadas para telas menores.
 
 As integrações ainda pendentes estão descritas em `docs/CONTRATOS-API-PENDENTES.md`. O diagnóstico e o guia operacional estão em `docs/DIAGNOSTICO-UX-UI.md` e `docs/GUIA-STATUS-SEMANAL.md`.

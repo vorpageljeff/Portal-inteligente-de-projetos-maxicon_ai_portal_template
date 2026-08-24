@@ -1,5 +1,6 @@
 import uuid
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -9,9 +10,16 @@ from app.schemas.dashboard import MilestoneCreate
 from app.schemas.operations import DeliverableCreate, ImpedimentCreate, TaskCreate
 
 
+class AiClarificationAnswer(BaseModel):
+    field: str = Field(min_length=1, max_length=80)
+    question: str = Field(min_length=3, max_length=500)
+    answer: str = Field(min_length=1, max_length=4000)
+
+
 class AiIntakeRequest(BaseModel):
     project_id: uuid.UUID
     prompt: str = Field(min_length=20)
+    clarifications: list[AiClarificationAnswer] = Field(default_factory=list, max_length=20)
 
 
 class AiStatusCycleDraft(BaseModel):
@@ -87,9 +95,36 @@ class AiIntakeDraft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class AiValidationQuestion(BaseModel):
+    field: str = Field(min_length=1, max_length=80)
+    question: str = Field(min_length=3, max_length=500)
+    reason: str = Field(min_length=3, max_length=500)
+    expected_format: str | None = Field(default=None, max_length=300)
+
+
+class AiIntakeAnalysis(BaseModel):
+    status: Literal["needs_information", "ready"]
+    analysis: str = Field(min_length=3, max_length=1500)
+    questions: list[AiValidationQuestion] = Field(default_factory=list, max_length=5)
+    draft: AiIntakeDraft | None = None
+
+    @model_validator(mode="after")
+    def validate_conversation_state(self):
+        if self.status == "ready" and self.draft is None:
+            raise ValueError("Um rascunho pronto precisa conter os dados estruturados.")
+        if self.status == "needs_information" and not self.questions:
+            raise ValueError("A analise incompleta precisa informar ao menos uma pergunta.")
+        if self.status == "needs_information" and self.draft is not None:
+            raise ValueError("Um rascunho incompleto nao pode ser liberado para aplicacao.")
+        return self
+
+
 class AiIntakePreview(BaseModel):
     provider: str
-    draft: AiIntakeDraft
+    status: Literal["needs_information", "ready"]
+    analysis: str
+    questions: list[AiValidationQuestion] = Field(default_factory=list)
+    draft: AiIntakeDraft | None = None
 
 
 class AiIntakeApplyRequest(BaseModel):

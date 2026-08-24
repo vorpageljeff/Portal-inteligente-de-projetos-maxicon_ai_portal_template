@@ -1,13 +1,16 @@
+import uuid
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
+from app.models.lpn import OrganizationMembership
 from app.models.security import User, UserRole
+from app.services.tenancy import get_membership
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 DbSession = Annotated[Session, Depends(get_db)]
@@ -29,3 +32,20 @@ def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
     if user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso restrito.")
     return user
+
+
+def get_active_membership(
+    user: Annotated[User, Depends(get_current_user)],
+    db: DbSession,
+    x_organization_id: Annotated[str | None, Header()] = None,
+) -> OrganizationMembership:
+    organization_id: uuid.UUID | None = None
+    if x_organization_id:
+        try:
+            organization_id = uuid.UUID(x_organization_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Organização inválida.") from exc
+    return get_membership(db, user=user, organization_id=organization_id)
+
+
+ActiveMembership = Annotated[OrganizationMembership, Depends(get_active_membership)]
