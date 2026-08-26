@@ -182,7 +182,7 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
                     return False
         return True
 
-    checks: list[tuple[str, ValidationSeverity, bool, str]] = [
+    checks: list[tuple[str, ValidationSeverity, bool, str, str]] = [
         (
             "LPN-ATUAL-001",
             ValidationSeverity.BLOCKING,
@@ -192,6 +192,7 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
                 or storytelling_fields.issubset(item.payload)
                 for item in by_kind[ContentKind.STORYTELLING]
             ),
+            "Processo atual informado.",
             "Detalhamento do processo atual não informado.",
         ),
         (
@@ -201,6 +202,7 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
             and all(
                 item.payload.get("description") for item in by_kind[ContentKind.OBJECTIVE]
             ),
+            "Objetivo e resultados esperados informados.",
             "Objetivo e resultados esperados não informados.",
         ),
         (
@@ -211,6 +213,7 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
                 item.payload.get("description")
                 for item in by_kind[ContentKind.REQUIREMENT]
             ),
+            "Processo proposto informado.",
             "Detalhamento do processo proposto não informado.",
         ),
         (
@@ -220,6 +223,7 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
                 item.process_type == ProcessType.TO_BE and valid_diagram(item)
                 for item in diagrams
             ),
+            "Fluxo do processo proposto cadastrado.",
             "Diagrama do processo proposto não cadastrado ou inválido.",
         ),
         (
@@ -229,6 +233,7 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
                 item.id in evidence_item_ids or item.payload.get("evidence_justification")
                 for item in by_kind[ContentKind.GAP]
             ),
+            "Não existem gaps sem evidência ou justificativa.",
             "Existe gap sem evidência ou justificativa.",
         ),
         (
@@ -239,12 +244,14 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
                 for kind in (ContentKind.REQUIREMENT, ContentKind.BUSINESS_RULE)
                 for item in by_kind[kind]
             ),
+            "Requisitos e regras estão vinculados aos critérios de aceite.",
             "Requisito ou regra sem vínculo rastreável.",
         ),
         (
             "LPN-AI-001",
             ValidationSeverity.BLOCKING,
             pending_ai == 0,
+            "Todas as sugestões da IA possuem decisão humana.",
             "Existe sugestão da IA sem decisão humana.",
         ),
     ]
@@ -256,9 +263,9 @@ def run_validation(db: Session, *, version: LpnVersion) -> list[ValidationResult
             status=(
                 ValidationResultStatus.PASSED if passed else ValidationResultStatus.FAILED
             ),
-            message=message,
+            message=success_message if passed else failure_message,
         )
-        for code, severity, passed, message in checks
+        for code, severity, passed, success_message, failure_message in checks
     ]
     db.add_all(results)
     db.flush()

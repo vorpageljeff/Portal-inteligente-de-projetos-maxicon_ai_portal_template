@@ -70,7 +70,7 @@
 .panel,
 .aiPanel,
 .governance,
-.validationList,
+.validationPanel,
 .documents {
   background: white;
   border: 1px solid #dce5e7;
@@ -424,18 +424,40 @@
   justify-content: flex-end;
 }
 
-.validationList,
-.documents {
+.validationList {
   display: grid;
   gap: 8px;
   list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.documents {
+  display: grid;
+  gap: 8px;
   margin: 16px 0 0;
   padding: 18px 22px;
 }
 
 .validationList li {
   border-radius: 9px;
-  padding: 9px 12px;
+  display: grid;
+  gap: 3px 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 11px 13px;
+}
+
+.validationList li span {
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 850;
+  padding: 3px 7px;
+  text-transform: uppercase;
+}
+
+.validationList li small {
+  align-self: center;
+  opacity: 0.68;
 }
 
 .failed {
@@ -446,6 +468,73 @@
 .passed {
   background: #eaf7ef;
   color: #1c7040;
+}
+
+.warning {
+  background: #fff7df;
+  color: #85600e;
+}
+
+.failed span {
+  background: #ffd8d1;
+}
+
+.warning span {
+  background: #ffe7a3;
+}
+
+.passed span {
+  background: #ccebd7;
+}
+
+.validationPanel {
+  margin-top: 16px;
+  padding: 20px 22px;
+}
+
+.validationHeader {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.validationHeader h2,
+.validationHeader p {
+  margin: 0;
+}
+
+.validationHeader p {
+  color: #62777d;
+  margin-top: 4px;
+}
+
+.validationHeader > strong {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+}
+
+.validationBlocked {
+  background: #fff0ed;
+  color: #9e382a;
+}
+
+.validationReady {
+  background: #eaf7ef;
+  color: #1c7040;
+}
+
+.passedChecks {
+  border-top: 1px solid #e1e9ea;
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.passedChecks summary {
+  color: #376269;
+  cursor: pointer;
+  font-weight: 750;
 }
 
 .documents {
@@ -869,6 +958,11 @@
     gap: 16px;
   }
 
+  .validationHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .aiPanel {
     grid-template-columns: 1fr;
   }
@@ -917,6 +1011,10 @@
   .blockActions {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .validationList li {
+    grid-template-columns: 1fr;
   }
 
   .documentCanvas,

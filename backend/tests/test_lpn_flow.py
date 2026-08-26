@@ -169,6 +169,19 @@ def test_complete_lpn_flow_with_approval_documents_and_clone(client: TestClient)
     )
     assert ai_decision.status_code == 201
 
+    checklist = client.post(
+        f"/api/v1/lpns/versions/{version_id}/validate", headers=headers
+    )
+    assert checklist.status_code == 200
+    passed_messages = {
+        item["rule_code"]: item["message"]
+        for item in checklist.json()
+        if item["status"] == "passed"
+    }
+    assert passed_messages["LPN-ATUAL-001"] == "Processo atual informado."
+    assert passed_messages["LPN-OBJ-001"] == "Objetivo e resultados esperados informados."
+    assert passed_messages["LPN-FLOW-001"] == "Fluxo do processo proposto cadastrado."
+
     approval = client.post(
         f"/api/v1/lpns/versions/{version_id}/approval",
         headers=headers,

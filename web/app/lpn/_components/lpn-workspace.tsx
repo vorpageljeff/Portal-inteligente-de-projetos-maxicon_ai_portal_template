@@ -88,6 +88,13 @@ export function LpnWorkspace() {
   const selectedLpn = lpns.find((item) => item.id === selectedLpnId) ?? lpns[0];
   const version = selectedLpn?.current_version;
   const selectedDemand = demands.find((item) => item.id === selectedLpn?.demand_id);
+  const blockingFailures = validations.filter(
+    (item) => item.status === "failed" && item.severity === "blocking",
+  );
+  const warningFailures = validations.filter(
+    (item) => item.status === "failed" && item.severity === "warning",
+  );
+  const passedValidations = validations.filter((item) => item.status !== "failed");
 
   const loadOrganizationData = useCallback(
     async (authToken: string, activeOrganizationId: string) => {
@@ -248,6 +255,7 @@ export function LpnWorkspace() {
         },
       );
       setContent((current) => [...current, created]);
+      setValidations([]);
     }, "Bloco adicionado ao documento.");
   }
 
@@ -283,6 +291,7 @@ export function LpnWorkspace() {
       setContent((current) => current.map((candidate) =>
         candidate.id === item.id ? updated : candidate,
       ));
+      setValidations([]);
     }, "Bloco salvo e marcado como revisado.");
   }
 
@@ -296,6 +305,7 @@ export function LpnWorkspace() {
         { method: "DELETE" },
       );
       setContent((current) => current.filter((candidate) => candidate.id !== item.id));
+      setValidations([]);
     }, "Bloco removido do documento.");
   }
 
@@ -320,6 +330,7 @@ export function LpnWorkspace() {
         ),
       ));
       setContent(sortContentItems(updated));
+      setValidations([]);
     }, "Ordem dos blocos atualizada.");
   }
 
@@ -360,27 +371,38 @@ export function LpnWorkspace() {
         }),
       });
       event.currentTarget.reset();
+      setValidations([]);
     }, "Evidência anexada e vinculada à versão.");
   }
 
-  async function advanceStatus() {
-    if (!version) return;
-    const currentIndex = STATUS_FLOW.indexOf(version.status);
-    const nextStatus = STATUS_FLOW[currentIndex + 1];
-    if (!nextStatus) return;
-    await execute(async () => {
-      await apiRequest(`/lpns/versions/${version.id}/transition`, token, organizationId, {
-        method: "POST",
-        body: JSON.stringify({ to_status: nextStatus }),
-      });
-      await refresh();
-    }, `LPN avançou para ${nextStatus}.`);
-  }
-
-  async function configureApproval() {
+  async function sendToApproval() {
     if (!version || !user) return;
     await execute(async () => {
-      const result = await apiRequest<{ id: string }>(
+      const checks = await apiRequest<ValidationResult[]>(
+        `/lpns/versions/${version.id}/validate`,
+        token,
+        organizationId,
+        { method: "POST" },
+      );
+      setValidations(checks);
+      const blockingMessages = checks
+        .filter((item) => item.status === "failed" && item.severity === "blocking")
+        .map((item) => item.message);
+      if (blockingMessages.length) {
+        throw new Error(`Antes de enviar para aprovação: ${blockingMessages.join(" ")}`);
+      }
+      const currentIndex = STATUS_FLOW.indexOf(version.status);
+      const approvalIndex = STATUS_FLOW.indexOf("waiting_approval");
+      if (currentIndex < 0 || currentIndex > approvalIndex) {
+        throw new Error("Esta versão não está em uma etapa que possa ser enviada para aprovação.");
+      }
+      for (const nextStatus of STATUS_FLOW.slice(currentIndex + 1, approvalIndex + 1)) {
+        await apiRequest(`/lpns/versions/${version.id}/transition`, token, organizationId, {
+          method: "POST",
+          body: JSON.stringify({ to_status: nextStatus }),
+        });
+      }
+      const approval = await apiRequest<{ id: string }>(
         `/lpns/versions/${version.id}/approval`,
         token,
         organizationId,
@@ -389,12 +411,13 @@ export function LpnWorkspace() {
         body: JSON.stringify({ approver_ids: [user.id], required_approvals: 1 }),
         },
       );
-      setApprovalStepId(result.id);
-    }, "Aprovação simples configurada para o usuário atual.");
+      setApprovalStepId(approval.id);
+      await refresh();
+    }, "LPN verificada e enviada para sua aprovação.");
   }
 
-  async function approveCurrentStep() {
-    if (!approvalStepId) return;
+  async function approveAndFinish() {
+    if (!approvalStepId || !version) return;
     await execute(async () => {
       await apiRequest(
         `/lpns/approval/${approvalStepId}/decision`,
@@ -402,7 +425,13 @@ export function LpnWorkspace() {
         organizationId,
         { method: "POST", body: JSON.stringify({ decision: "approved" }) },
       );
-    }, "Decisão de aprovação registrada.");
+      await apiRequest(`/lpns/versions/${version.id}/transition`, token, organizationId, {
+        method: "POST",
+        body: JSON.stringify({ to_status: "approved" }),
+      });
+      setApprovalStepId("");
+      await refresh();
+    }, "LPN aprovada. O documento oficial já pode ser gerado.");
   }
 
   async function generateAiDraft(brief: LpnBrief) {
@@ -412,6 +441,7 @@ export function LpnWorkspace() {
         analysis: string;
         suggestion_ids: string[];
         questions: Array<{ question: string }>;
+        suggestions: Array<{ kind: ContentKind }>;
       }>(`/lpns/versions/${version.id}/ai/compose`, token, organizationId, {
         method: "POST",
         body: JSON.stringify(brief),
@@ -419,14 +449,31 @@ export function LpnWorkspace() {
       if (!result.suggestion_ids.length) {
         throw new Error(result.questions.map((item) => item.question).join(" ") || result.analysis);
       }
-      await Promise.all(result.suggestion_ids.map((suggestionId) =>
-        apiRequest(
+      const decisions = await Promise.all(result.suggestion_ids.map((suggestionId) =>
+        apiRequest<{ content_item_id?: string | null }>(
           `/lpns/ai/suggestions/${suggestionId}/decision`,
           token,
           organizationId,
           { method: "POST", body: JSON.stringify({ decision: "accepted" }) },
         ),
       ));
+      const createdByKind = new Map<ContentKind, string>();
+      result.suggestions.forEach((suggestion, index) => {
+        const itemId = decisions[index]?.content_item_id;
+        if (itemId) createdByKind.set(suggestion.kind, itemId);
+      });
+      const requirementId = createdByKind.get("requirement");
+      const acceptanceId = createdByKind.get("acceptance_criterion");
+      if (requirementId && acceptanceId) {
+        await apiRequest(`/lpns/versions/${version.id}/links`, token, organizationId, {
+          method: "POST",
+          body: JSON.stringify({
+            source_item_id: requirementId,
+            target_item_id: acceptanceId,
+            relationship: "validated_by",
+          }),
+        });
+      }
       const updated = await apiRequest<ContentItem[]>(
         `/lpns/versions/${version.id}/content`,
         token,
@@ -434,6 +481,7 @@ export function LpnWorkspace() {
       );
       const ordered = sortContentItems(updated);
       setContent(ordered);
+      setValidations([]);
       setAiAnalysis(result.analysis);
       const processSteps = [...ordered]
         .reverse()
@@ -500,6 +548,7 @@ export function LpnWorkspace() {
         },
       );
       setContent((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setValidations([]);
     }, "Fluxo proposto atualizado.");
   }
 
@@ -689,26 +738,58 @@ export function LpnWorkspace() {
               </section>
               <section className={styles.governance}>
                 <div>
-                  <h2>Governança</h2>
-                  <p>Valide o conteúdo antes de avançar. Aprovação congela toda a versão.</p>
+                  <h2>Revisão e geração</h2>
+                  <p>Verifique o conteúdo, envie para aprovação e gere o Word oficial.</p>
                 </div>
                 <div className={styles.governanceActions}>
-                  <button disabled={busy} onClick={validate} type="button">Executar checklist</button>
-                  <button disabled={busy} onClick={configureApproval} type="button">Configurar aprovação simples</button>
-                  <button disabled={busy || !approvalStepId} onClick={approveCurrentStep} type="button">Registrar meu aceite</button>
-                  <button disabled={busy || version.status === "approved"} onClick={advanceStatus} type="button">Avançar status</button>
-                  <button disabled={busy || version.status !== "approved"} onClick={generateDocuments} type="button">Gerar documentos</button>
+                  <button disabled={busy} onClick={validate} type="button">1. Verificar LPN</button>
+                  <button disabled={busy || version.status === "approved"} onClick={sendToApproval} type="button">2. Enviar para aprovação</button>
+                  <button disabled={busy || !approvalStepId} onClick={approveAndFinish} type="button">3. Aprovar LPN</button>
+                  <button disabled={busy || version.status !== "approved"} onClick={generateDocuments} type="button">4. Gerar documento</button>
                   <button disabled={busy || version.status !== "approved"} onClick={cloneApprovedVersion} type="button">Criar nova versão</button>
                 </div>
               </section>
               {validations.length ? (
-                <ul className={styles.validationList}>
-                  {validations.map((item) => (
-                    <li className={item.status === "failed" ? styles.failed : styles.passed} key={item.id}>
-                      <strong>{item.rule_code}</strong> {item.message}
-                    </li>
-                  ))}
-                </ul>
+                <section className={styles.validationPanel}>
+                  <header className={styles.validationHeader}>
+                    <div>
+                      <h2>Resultado da verificação</h2>
+                      <p>
+                        {blockingFailures.length
+                          ? `${blockingFailures.length} ajuste(s) obrigatório(s) antes da aprovação.`
+                          : "A LPN não possui bloqueios para aprovação."}
+                      </p>
+                    </div>
+                    <strong className={blockingFailures.length ? styles.validationBlocked : styles.validationReady}>
+                      {blockingFailures.length ? "Ajustes necessários" : "Pronta para avançar"}
+                    </strong>
+                  </header>
+                  {blockingFailures.length || warningFailures.length ? (
+                    <ul className={styles.validationList}>
+                      {[...blockingFailures, ...warningFailures].map((item) => (
+                        <li className={item.severity === "blocking" ? styles.failed : styles.warning} key={item.id}>
+                          <span>{item.severity === "blocking" ? "Obrigatório" : "Atenção"}</span>
+                          <strong>{item.message}</strong>
+                          <small>{item.rule_code}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {passedValidations.length ? (
+                    <details className={styles.passedChecks}>
+                      <summary>{passedValidations.length} verificações concluídas</summary>
+                      <ul className={styles.validationList}>
+                        {passedValidations.map((item) => (
+                          <li className={styles.passed} key={item.id}>
+                            <span>Concluído</span>
+                            <strong>{item.message}</strong>
+                            <small>{item.rule_code}</small>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : null}
+                </section>
               ) : null}
               {documents.length ? (
                 <div className={styles.documents}>
