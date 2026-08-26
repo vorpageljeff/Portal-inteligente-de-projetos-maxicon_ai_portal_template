@@ -380,11 +380,11 @@ export function LpnWorkspace() {
         organizationId,
         {
           method: "POST",
-          body: JSON.stringify({ formats: ["docx", "pdf", "json", "svg"] }),
+          body: JSON.stringify({ formats: ["docx"] }),
         },
       );
       setDocuments(result);
-    }, "Documentos gerados.");
+    }, "Documento oficial gerado.");
   }
 
   async function cloneApprovedVersion() {

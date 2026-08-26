@@ -3,7 +3,9 @@ import html
 import io
 import json
 from collections import defaultdict
+from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 
 from docx import Document
 from docx.document import Document as DocumentObject
@@ -12,6 +14,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
+from docx.table import Table as DocxTable
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -63,6 +66,7 @@ APPROVAL_LABELS = {
     "rejected": "Rejeitado",
     "changes_requested": "Alterações solicitadas",
 }
+LPN_TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "lpn_template.docx"
 
 
 def _document_data(db: Session, version: LpnVersion) -> dict:
@@ -380,19 +384,106 @@ def _add_process_diagram(document: DocumentObject, data: dict) -> None:
             paragraph.add_run("  →")
 
 
+def _fill_template_cover(document: DocumentObject, data: dict) -> None:
+    demand = data["demand"]
+    values = {
+        "{{client}}": demand["client"],
+        "{{external_number}}": demand["external_number"] or "Não informada",
+        "{{system_product}}": demand["system_product"],
+        "{{title}}": demand["title"],
+        "{{product_owner}}": demand["product_owner"] or "Não informado",
+        "{{business_analyst}}": demand["business_analyst"] or "Não informado",
+    }
+    cover = document.paragraphs[0]._p
+    found: set[str] = set()
+    for node in cover.xpath(".//w:t"):
+        if node.text in values:
+            found.add(node.text)
+            node.text = values[node.text]
+    missing = set(values) - found
+    if missing:
+        raise RuntimeError(f"Modelo LPN sem os campos esperados: {sorted(missing)}")
+
+
+def _reset_template_body(document: DocumentObject):
+    body = document._body._body
+    cover = document.paragraphs[0]._p
+    approval_table = deepcopy(document.tables[0]._tbl)
+    section_properties = body.sectPr
+    for element in list(body):
+        if element is cover or element is section_properties:
+            continue
+        body.remove(element)
+    return approval_table
+
+
+def _add_template_section(
+    document: DocumentObject,
+    title: str,
+    items: list[dict],
+    *,
+    include_when_empty: bool = True,
+) -> None:
+    if not items and not include_when_empty:
+        return
+    document.add_heading(title, level=1)
+    if not items:
+        document.add_paragraph("Não informado.")
+        return
+    for item in items:
+        item_title = item["title"].strip()
+        if len(items) > 1 and item_title:
+            title_paragraph = document.add_paragraph()
+            title_paragraph.add_run(item_title).bold = True
+        text = _plain_text(item["content"])
+        paragraphs = [value.strip() for value in text.splitlines() if value.strip()]
+        for value in paragraphs or ["Não informado."]:
+            document.add_paragraph(value)
+
+
+def _add_template_evidences(document: DocumentObject, data: dict) -> None:
+    for evidence in data["evidences"]:
+        if evidence["content_type"] not in {"image/png", "image/jpeg"}:
+            continue
+        caption = document.add_paragraph()
+        caption.add_run(evidence["description"]).italic = True
+        picture = document.add_paragraph()
+        picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        try:
+            picture.add_run().add_picture(io.BytesIO(evidence["content"]), width=Inches(6.2))
+        except (ValueError, TypeError):
+            picture.add_run(f"Anexo: {evidence['filename']}")
+
+
+def _add_template_approval_table(
+    document: DocumentObject,
+    table_xml,
+    approvals: list[dict],
+) -> None:
+    body = document._body._body
+    body.insert(len(body) - 1, table_xml)
+    table = DocxTable(table_xml, document._body)
+    if len(table.rows) < 2:
+        table.add_row()
+    table.rows[1].cells[0].text = approvals[0]["name"] if approvals else ""
+    for approval in approvals[1:]:
+        table.add_row().cells[0].text = approval["name"]
+
+
 def _build_docx(data: dict) -> bytes:
-    document = Document()
-    _configure_docx(document)
-    _add_document_header_footer(document, data)
-    _add_cover(document, data)
-    _add_general_data(document, data)
-    _add_section_content(
+    if not LPN_TEMPLATE_PATH.is_file():
+        raise RuntimeError(f"Modelo oficial de LPN não encontrado: {LPN_TEMPLATE_PATH}")
+    document = Document(LPN_TEMPLATE_PATH)
+    _fill_template_cover(document, data)
+    approval_table = _reset_template_body(document)
+
+    _add_template_section(
         document,
         "DETALHAMENTO DO PROCESSO ATUAL",
         data["sections"]["DETALHAMENTO DO PROCESSO ATUAL"],
     )
-    _add_evidences(document, data)
-    _add_section_content(
+    _add_template_evidences(document, data)
+    _add_template_section(
         document,
         "OBJETIVO E RESULTADOS ESPERADOS",
         data["sections"]["OBJETIVO E RESULTADOS ESPERADOS"],
@@ -402,28 +493,34 @@ def _build_docx(data: dict) -> bytes:
         "DETALHAMENTOS DO PROCESSO PROPOSTO",
         "RESTRIÇÕES/IMPEDITIVOS",
         "INFORMAÇÕES COMPLEMENTARES",
-        "CRITÉRIOS DE ACEITE",
     ):
-        _add_section_content(document, section, data["sections"][section])
+        _add_template_section(document, section, data["sections"][section])
+    _add_template_section(
+        document,
+        "CRITÉRIOS DE ACEITE",
+        data["sections"]["CRITÉRIOS DE ACEITE"],
+        include_when_empty=False,
+    )
     document.add_heading("APROVAÇÃO/ACEITE", level=1)
     document.add_paragraph(
-        "Estou de acordo com os processos descritos neste documento e ciente de que "
-        "faz parte do escopo desta demanda exclusivamente o que está discriminado acima."
+        "Estou de acordo com os processos descritos no referido documento e ciente de que "
+        "fazem parte do escopo dessa demanda, exclusivamente o que está discriminado acima."
     )
     document.add_paragraph(
-        "Qualquer alteração adicional será considerada uma nova demanda e deverá ser "
-        "tratada em outra especificação ou solicitação."
+        "Qualquer alteração adicional será considerada uma nova demanda e deverá ser tratada "
+        "em outra especificação/solicitação."
     )
-    approval_table = document.add_table(rows=1, cols=3)
-    approval_table.style = "Table Grid"
-    for index, label in enumerate(("Nome", "Decisão", "Data")):
-        _shade_cell(approval_table.cell(0, index), "E8EEF5")
-        approval_table.cell(0, index).paragraphs[0].add_run(label).bold = True
-    for approval in data["approvals"]:
-        cells = approval_table.add_row().cells
-        cells[0].text = approval["name"]
-        cells[1].text = APPROVAL_LABELS.get(approval["decision"], approval["decision"])
-        cells[2].text = approval["date"][:10]
+    document.add_paragraph(
+        "A aprovação deste documento na página de solicitações formaliza o aceite do(s) "
+        "nomeado(s) abaixo."
+    )
+    _add_template_approval_table(document, approval_table, data["approvals"])
+    trailing_paragraph = document.add_paragraph()
+    trailing_paragraph.paragraph_format.space_before = Pt(0)
+    trailing_paragraph.paragraph_format.space_after = Pt(0)
+    trailing_paragraph.paragraph_format.line_spacing = Pt(1)
+    trailing_paragraph.add_run(" ").font.size = Pt(1)
+
     output = io.BytesIO()
     document.save(output)
     return output.getvalue()

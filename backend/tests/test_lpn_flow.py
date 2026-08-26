@@ -241,10 +241,18 @@ def test_complete_lpn_flow_with_approval_documents_and_clone(client: TestClient)
     )
     generated_docx = Document(io.BytesIO(downloaded.content))
     document_text = "\n".join(paragraph.text for paragraph in generated_docx.paragraphs)
+    cover_text = " ".join(
+        node.text or "" for node in generated_docx.paragraphs[0]._p.xpath(".//w:t")
+    )
+    assert "Cooperativa Exemplo" in cover_text
+    assert "238862" in cover_text
+    assert "Automatizar recebimento" in cover_text
+    assert "Vaccaro" not in cover_text
     assert "DETALHAMENTO DO PROCESSO ATUAL" in document_text
     assert "OBJETIVO E RESULTADOS ESPERADOS" in document_text
     assert "DETALHAMENTOS DO PROCESSO PROPOSTO" in document_text
     assert "APROVAÇÃO/ACEITE" in document_text
+    assert generated_docx.tables[-1].cell(1, 0).text == "Admin LPN"
 
     cloned = client.post(
         f"/api/v1/lpns/versions/{version_id}/clone",
