@@ -265,3 +265,75 @@ def test_complete_lpn_flow_with_approval_documents_and_clone(client: TestClient)
         f"/api/v1/lpns/versions/{cloned.json()['id']}/content", headers=headers
     )
     assert len(cloned_content.json()) == 5
+
+
+def test_ai_compose_creates_six_editable_blocks(client: TestClient) -> None:
+    headers, _ = authenticate(client)
+    organization = client.get("/api/v1/organizations", headers=headers).json()[0]
+    headers["X-Organization-ID"] = organization["id"]
+    created_client = client.post(
+        "/api/v1/organizations/clients",
+        headers=headers,
+        json={"name": "Cliente Editor Visual"},
+    )
+    demand = client.post(
+        "/api/v1/lpns/demands",
+        headers=headers,
+        json={
+            "client_id": created_client.json()["id"],
+            "title": "Simplificar relatório de carregamento",
+            "business_area": "Expedição",
+            "business_process": "Carregamento",
+            "system_product": "VPE020",
+            "requester_name": "Responsável da expedição",
+            "priority": "medium",
+            "discovery_date": "2026-08-26",
+            "demand_type": "improvement",
+        },
+    )
+    lpn = client.post(
+        f"/api/v1/lpns/from-demand/{demand.json()['id']}", headers=headers
+    ).json()
+    version_id = lpn["current_version"]["id"]
+
+    composed = client.post(
+        f"/api/v1/lpns/versions/{version_id}/ai/compose",
+        headers=headers,
+        json={
+            "as_is": (
+                "Hoje a expedição preenche muitos filtros e confere manualmente "
+                "as informações do relatório de carregamento."
+            ),
+            "to_be": (
+                "A tela deve destacar filtros obrigatórios, validar os dados e "
+                "mostrar um resumo antes de gerar o relatório."
+            ),
+            "constraints": "Manter regras, permissões e origem dos dados.",
+        },
+    )
+    assert composed.status_code == 200, composed.text
+    suggestion_ids = composed.json()["suggestion_ids"]
+    assert len(suggestion_ids) == 6
+
+    for suggestion_id in suggestion_ids:
+        accepted = client.post(
+            f"/api/v1/lpns/ai/suggestions/{suggestion_id}/decision",
+            headers=headers,
+            json={"decision": "accepted"},
+        )
+        assert accepted.status_code == 201, accepted.text
+
+    content = client.get(
+        f"/api/v1/lpns/versions/{version_id}/content", headers=headers
+    ).json()
+    assert len(content) == 6
+    assert {item["kind"] for item in content} == {
+        "storytelling",
+        "objective",
+        "requirement",
+        "constraint",
+        "pending_issue",
+        "acceptance_criterion",
+    }
+    requirement = next(item for item in content if item["kind"] == "requirement")
+    assert len(requirement["payload"]["process_steps"]) >= 2

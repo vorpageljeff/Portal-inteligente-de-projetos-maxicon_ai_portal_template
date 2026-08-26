@@ -224,6 +224,13 @@ class LpnAiPreviewRequest(BaseModel):
     source_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
+class LpnAiComposeRequest(BaseModel):
+    as_is: str = Field(min_length=20, max_length=15000)
+    to_be: str = Field(min_length=20, max_length=15000)
+    constraints: str | None = Field(default=None, max_length=8000)
+    additional_context: str | None = Field(default=None, max_length=8000)
+
+
 class LpnAiQuestion(BaseModel):
     question: str
     reason: str

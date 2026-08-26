@@ -49,6 +49,7 @@ from app.schemas.lpn import (
     EvidenceCreate,
     EvidenceRead,
     GeneratedDocumentRead,
+    LpnAiComposeRequest,
     LpnAiDecisionRequest,
     LpnAiPreviewRead,
     LpnAiPreviewRequest,
@@ -773,6 +774,66 @@ def ai_preview(
         source_type="user_input",
         name=f"Entrada para {payload.use_case.value}",
         reference=payload.input_text,
+    )
+    db.add(source)
+    db.flush()
+    suggestions = [
+        AiSuggestion(
+            lpn_version_id=version.id,
+            interaction_id=interaction.id,
+            source_id=source.id,
+            target_kind=item.kind,
+            suggested_content={"title": item.title, "payload": item.payload},
+            confidence=item.confidence,
+        )
+        for item in output.suggestions
+    ]
+    db.add_all(suggestions)
+    db.flush()
+    db.commit()
+    return LpnAiPreviewRead(
+        **output.model_dump(),
+        interaction_id=interaction.id,
+        suggestion_ids=[item.id for item in suggestions],
+    )
+
+
+@router.post("/versions/{version_id}/ai/compose", response_model=LpnAiPreviewRead)
+def ai_compose(
+    version_id: uuid.UUID,
+    payload: LpnAiComposeRequest,
+    db: DbSession,
+    membership: ActiveMembership,
+    user: CurrentUser,
+) -> LpnAiPreviewRead:
+    _, version = require_lpn_version(db, version_id=version_id, membership=membership)
+    ensure_editable(version, membership)
+    try:
+        provider, model, output = LpnAiService().compose(**payload.model_dump())
+    except LpnAiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    source_text = (
+        f"AS IS:\n{payload.as_is}\n\nTO BE:\n{payload.to_be}\n\n"
+        f"RESTRIÇÕES:\n{payload.constraints or 'Não informadas.'}\n\n"
+        f"CONTEXTO ADICIONAL:\n{payload.additional_context or 'Não informado.'}"
+    )
+    interaction = AiInteraction(
+        lpn_version_id=version.id,
+        user_id=user.id,
+        use_case="full_lpn",
+        provider=provider,
+        model=model,
+        prompt_version=LpnAiService.prompt_version,
+        prompt=source_text,
+        response=serialize_ai_output(output),
+    )
+    db.add(interaction)
+    db.flush()
+    source = InformationSource(
+        lpn_version_id=version.id,
+        source_type="user_input",
+        name="Briefing AS IS / TO BE",
+        reference=source_text,
     )
     db.add(source)
     db.flush()

@@ -460,6 +460,362 @@
   text-align: left;
 }
 
+.visualEditor {
+  display: grid;
+  gap: 16px;
+}
+
+.editorHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 4px;
+}
+
+.editorHeader h2,
+.editorHeader p,
+.editorHeader h3,
+.canvasHeading h3,
+.canvasHeading p,
+.briefIntro h3,
+.briefIntro p {
+  margin: 4px 0;
+}
+
+.editorHeader span,
+.canvasHeading span,
+.briefIntro span {
+  color: #087b72;
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.editorHeader > strong {
+  background: #e5f3f0;
+  border-radius: 999px;
+  color: #086a63;
+  padding: 8px 13px;
+}
+
+.briefPanel {
+  background: linear-gradient(135deg, #073c3c, #0b6660);
+  border-radius: 20px;
+  color: white;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 24px;
+}
+
+.briefIntro,
+.briefDetails,
+.generateDraftButton,
+.briefPanel > small {
+  grid-column: 1 / -1;
+}
+
+.briefIntro span,
+.briefPanel > small {
+  color: #b8e6dd;
+}
+
+.briefPanel label {
+  display: grid;
+  gap: 7px;
+}
+
+.briefPanel textarea {
+  background: rgb(255 255 255 / 98%);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  color: #17272d;
+  font: inherit;
+  line-height: 1.45;
+  padding: 13px 14px;
+  resize: vertical;
+  width: 100%;
+}
+
+.briefPanel textarea:focus {
+  border-color: #61c5b6;
+  outline: none;
+}
+
+.briefDetails {
+  border-top: 1px solid rgb(255 255 255 / 20%);
+  padding-top: 12px;
+}
+
+.briefDetails summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.briefExtras {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.generateDraftButton {
+  background: #ffffff;
+  border: 0;
+  border-radius: 12px;
+  color: #075b56;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 850;
+  padding: 14px 18px;
+}
+
+.generateDraftButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.documentCanvas {
+  background: #e9eef0;
+  border: 1px solid #d6e0e2;
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+}
+
+.canvasHeading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px 6px;
+}
+
+.canvasHeading p {
+  color: #5b7177;
+  font-size: 0.86rem;
+}
+
+.contentBlock {
+  background: white;
+  border: 1px solid #d6e1e3;
+  border-radius: 15px;
+  box-shadow: 0 7px 22px rgb(22 62 68 / 7%);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.dragHandle[draggable="true"] {
+  cursor: grab;
+}
+
+.dragHandle[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.dragHandle {
+  align-items: center;
+  background: #f0f5f5;
+  border: 0;
+  color: #71888d;
+  display: flex;
+  font-size: 1.15rem;
+  font-weight: 900;
+  justify-content: center;
+  user-select: none;
+}
+
+.dragHandle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.blockBody {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.blockMeta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.blockMeta span {
+  color: #076d66;
+  font-size: 0.73rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.blockMeta em,
+.blockMeta b {
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 750;
+  padding: 3px 8px;
+}
+
+.blockMeta em {
+  background: #eaf1fb;
+  color: #346a9b;
+}
+
+.blockMeta b {
+  background: #e8f6ee;
+  color: #277045;
+}
+
+.blockBody > input,
+.blockBody > textarea,
+.addBlock input,
+.addBlock select,
+.addBlock textarea {
+  border: 1px solid #cbd9dc;
+  border-radius: 10px;
+  color: #17272d;
+  font: inherit;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.blockBody > input {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.blockBody > textarea,
+.addBlock textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.blockActions {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.blockActions > div {
+  display: flex;
+  gap: 7px;
+}
+
+.blockActions button {
+  background: #087b72;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  padding: 8px 11px;
+}
+
+.blockActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.blockActions .dangerButton {
+  background: #fff0ed;
+  color: #9e382a;
+}
+
+.lockControl {
+  align-items: center;
+  color: #516b71;
+  display: flex;
+  font-size: 0.82rem;
+  gap: 7px;
+}
+
+.lockControl input {
+  accent-color: #087b72;
+}
+
+.flowBlock {
+  border-color: #9fc6dc;
+  margin: 12px 0;
+}
+
+.flowBlock .dragHandle {
+  background: #e7f2f8;
+  color: #2e74b5;
+}
+
+.flowPreview {
+  align-items: stretch;
+  background: #f4f8fb;
+  border: 1px dashed #94b7d3;
+  border-radius: 12px;
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 13px;
+}
+
+.flowPreview div {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 9px;
+}
+
+.flowPreview span {
+  align-items: center;
+  background: white;
+  border: 2px solid #2e74b5;
+  border-radius: 10px;
+  display: flex;
+  font-size: 0.82rem;
+  font-weight: 750;
+  justify-content: center;
+  max-width: 210px;
+  min-height: 54px;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.flowPreview b {
+  color: #2e74b5;
+  font-size: 1.35rem;
+}
+
+.canvasEmpty {
+  background: white;
+  border: 2px dashed #b9c9cc;
+  border-radius: 14px;
+  color: #60777c;
+  padding: 42px 20px;
+  text-align: center;
+}
+
+.addBlock {
+  background: rgb(255 255 255 / 65%);
+  border: 1px dashed #aebfc2;
+  border-radius: 13px;
+  padding: 13px 15px;
+}
+
+.addBlock summary {
+  color: #087b72;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.addBlock form {
+  margin-top: 13px;
+}
+
 .error,
 .notice {
   border-radius: 10px;
@@ -517,6 +873,18 @@
     grid-template-columns: 1fr;
   }
 
+  .briefPanel,
+  .briefExtras {
+    grid-template-columns: 1fr;
+  }
+
+  .briefIntro,
+  .briefDetails,
+  .generateDraftButton,
+  .briefPanel > small {
+    grid-column: auto;
+  }
+
   .governanceActions {
     justify-content: flex-start;
   }
@@ -542,5 +910,17 @@
 
   .generalData {
     grid-template-columns: 1fr;
+  }
+
+  .editorHeader,
+  .canvasHeading,
+  .blockActions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .documentCanvas,
+  .briefPanel {
+    padding: 14px;
   }
 }

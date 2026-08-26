@@ -80,17 +80,36 @@ def _document_data(db: Session, version: LpnVersion) -> dict:
         db.scalars(
             select(LpnContentItem)
             .where(LpnContentItem.lpn_version_id == version.id)
-            .order_by(LpnContentItem.kind, LpnContentItem.sort_order, LpnContentItem.code)
         )
     )
+    section_position = {kind: index for index, kind in enumerate(SECTION_LABELS)}
+
+    def visual_order(item: LpnContentItem) -> tuple[int, int, int, str]:
+        editor_order = item.payload.get("editor_order")
+        if isinstance(editor_order, int):
+            return (0, editor_order, 0, item.code)
+        return (
+            1,
+            section_position.get(item.kind, 999),
+            item.sort_order,
+            item.code,
+        )
+
+    items.sort(key=visual_order)
     grouped: dict[str, list[dict]] = defaultdict(list)
+    ordered_blocks: list[dict] = []
     for item in items:
         section = SECTION_LABELS.get(item.kind)
         if not section:
             continue
-        grouped[section].append(
-            {"code": item.code, "title": item.title, "content": item.payload}
-        )
+        block = {
+            "code": item.code,
+            "title": item.title,
+            "content": item.payload,
+            "section": section,
+        }
+        grouped[section].append(block)
+        ordered_blocks.append(block)
     diagrams = list(
         db.scalars(select(ProcessDiagram).where(ProcessDiagram.lpn_version_id == version.id))
     )
@@ -130,6 +149,7 @@ def _document_data(db: Session, version: LpnVersion) -> dict:
             "priority": demand.priority.value,
         },
         "sections": {section: grouped.get(section, []) for section in SECTION_ORDER},
+        "ordered_blocks": ordered_blocks,
         "processes": [
             {"type": diagram.process_type.value, "name": diagram.name, "model": diagram.model}
             for diagram in diagrams
@@ -423,16 +443,18 @@ def _add_template_section(
     items: list[dict],
     *,
     include_when_empty: bool = True,
+    include_heading: bool = True,
 ) -> None:
     if not items and not include_when_empty:
         return
-    document.add_heading(title, level=1)
+    if include_heading:
+        document.add_heading(title, level=1)
     if not items:
         document.add_paragraph("Não informado.")
         return
     for item in items:
         item_title = item["title"].strip()
-        if len(items) > 1 and item_title:
+        if item_title and item_title.lower() not in {title.lower(), "conteúdo"}:
             title_paragraph = document.add_paragraph()
             title_paragraph.add_run(item_title).bold = True
         text = _plain_text(item["content"])
@@ -477,30 +499,31 @@ def _build_docx(data: dict) -> bytes:
     _fill_template_cover(document, data)
     approval_table = _reset_template_body(document)
 
-    _add_template_section(
-        document,
-        "DETALHAMENTO DO PROCESSO ATUAL",
-        data["sections"]["DETALHAMENTO DO PROCESSO ATUAL"],
-    )
-    _add_template_evidences(document, data)
-    _add_template_section(
-        document,
-        "OBJETIVO E RESULTADOS ESPERADOS",
-        data["sections"]["OBJETIVO E RESULTADOS ESPERADOS"],
-    )
-    _add_process_diagram(document, data)
-    for section in (
-        "DETALHAMENTOS DO PROCESSO PROPOSTO",
-        "RESTRIÇÕES/IMPEDITIVOS",
-        "INFORMAÇÕES COMPLEMENTARES",
-    ):
-        _add_template_section(document, section, data["sections"][section])
-    _add_template_section(
-        document,
-        "CRITÉRIOS DE ACEITE",
-        data["sections"]["CRITÉRIOS DE ACEITE"],
-        include_when_empty=False,
-    )
+    inserted_evidences = False
+    inserted_diagram = False
+    seen_sections: set[str] = set()
+    for block in data["ordered_blocks"]:
+        section = block["section"]
+        first_block_in_section = section not in seen_sections
+        seen_sections.add(section)
+        _add_template_section(
+            document,
+            section,
+            [block],
+            include_heading=first_block_in_section,
+        )
+        if section == "DETALHAMENTO DO PROCESSO ATUAL" and not inserted_evidences:
+            _add_template_evidences(document, data)
+            inserted_evidences = True
+        if section == "DETALHAMENTOS DO PROCESSO PROPOSTO" and not inserted_diagram:
+            _add_process_diagram(document, data)
+            inserted_diagram = True
+    for section in SECTION_ORDER:
+        if section in seen_sections or section == "CRITÉRIOS DE ACEITE":
+            continue
+        _add_template_section(document, section, [])
+    if not inserted_diagram:
+        _add_process_diagram(document, data)
     document.add_heading("APROVAÇÃO/ACEITE", level=1)
     document.add_paragraph(
         "Estou de acordo com os processos descritos no referido documento e ciente de que "

@@ -1,10 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import styles from "../lpn.module.css";
 import { apiRequest } from "../_lib/api";
+import {
+  LpnBlockEditor,
+  type LpnBrief,
+  type NewBlock,
+} from "./lpn-block-editor";
 import type {
   Client,
   ContentItem,
@@ -43,6 +48,24 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Erro inesperado.";
 }
 
+const SECTION_POSITION = new Map(
+  CONTENT_SECTIONS.map((section, index) => [section.kind, index]),
+);
+
+function sortContentItems(items: ContentItem[]) {
+  const hasVisualOrder = items.some((item) => typeof item.payload.editor_order === "number");
+  return [...items].sort((left, right) => {
+    if (hasVisualOrder) {
+      const leftOrder = Number(left.payload.editor_order ?? Number.MAX_SAFE_INTEGER);
+      const rightOrder = Number(right.payload.editor_order ?? Number.MAX_SAFE_INTEGER);
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    }
+    const sectionDifference =
+      (SECTION_POSITION.get(left.kind) ?? 99) - (SECTION_POSITION.get(right.kind) ?? 99);
+    return sectionDifference || left.sort_order - right.sort_order;
+  });
+}
+
 export function LpnWorkspace() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
@@ -53,12 +76,9 @@ export function LpnWorkspace() {
   const [lpns, setLpns] = useState<Lpn[]>([]);
   const [selectedLpnId, setSelectedLpnId] = useState("");
   const [content, setContent] = useState<ContentItem[]>([]);
-  const [activeKind, setActiveKind] = useState<ContentKind>("storytelling");
   const [validations, setValidations] = useState<ValidationResult[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [approvalStepId, setApprovalStepId] = useState("");
-  const [aiInput, setAiInput] = useState("");
-  const [aiSuggestionId, setAiSuggestionId] = useState("");
   const [aiAnalysis, setAiAnalysis] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -68,10 +88,6 @@ export function LpnWorkspace() {
   const selectedLpn = lpns.find((item) => item.id === selectedLpnId) ?? lpns[0];
   const version = selectedLpn?.current_version;
   const selectedDemand = demands.find((item) => item.id === selectedLpn?.demand_id);
-  const visibleContent = useMemo(
-    () => content.filter((item) => item.kind === activeKind),
-    [activeKind, content],
-  );
 
   const loadOrganizationData = useCallback(
     async (authToken: string, activeOrganizationId: string) => {
@@ -131,7 +147,7 @@ export function LpnWorkspace() {
       ),
     ])
       .then(([items, approvalSteps, generated]) => {
-        setContent(items);
+        setContent(sortContentItems(items));
         setDocuments(generated);
         const pendingStep = approvalSteps.find(
           (item) => item.assigned_to_current_user && !item.current_user_decision,
@@ -206,13 +222,10 @@ export function LpnWorkspace() {
     }, "Demanda e LPN criadas.");
   }
 
-  async function createContent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createContent(block: NewBlock) {
     if (!version) return;
-    const form = new FormData(event.currentTarget);
-    const section = CONTENT_SECTIONS.find((item) => item.kind === activeKind)!;
-    const count = content.filter((item) => item.kind === activeKind).length + 1;
-    const payload = { description: form.get("description") };
+    const section = CONTENT_SECTIONS.find((item) => item.kind === block.kind)!;
+    const count = content.filter((item) => item.kind === block.kind).length + 1;
     await execute(async () => {
       const created = await apiRequest<ContentItem>(
         `/lpns/versions/${version.id}/content`,
@@ -221,32 +234,93 @@ export function LpnWorkspace() {
         {
           method: "POST",
           body: JSON.stringify({
-            kind: activeKind,
+            kind: block.kind,
             code: `${section.prefix}-${String(count).padStart(3, "0")}`,
-            title: form.get("title"),
-            payload,
-            sort_order: count,
+            title: block.title,
+            payload: {
+              description: block.description,
+              editor_order: content.length + 1,
+              origin: "user_input",
+              human_reviewed: true,
+            },
+            sort_order: content.length + 1,
           }),
         },
       );
       setContent((current) => [...current, created]);
-      event.currentTarget.reset();
-    }, `${section.label}: item adicionado.`);
+    }, "Bloco adicionado ao documento.");
   }
 
-  async function saveDiagram(processType: "as_is" | "to_be", rawModel: string) {
+  async function saveContentBlock(
+    item: ContentItem,
+    title: string,
+    description: string,
+    locked: boolean,
+  ) {
     if (!version) return;
     await execute(async () => {
-      const model = JSON.parse(rawModel) as Record<string, unknown>;
-      await apiRequest(`/lpns/versions/${version.id}/diagrams`, token, organizationId, {
-        method: "PUT",
-        body: JSON.stringify({
-          process_type: processType,
-          name: processType === "as_is" ? "Processo atual" : "Processo proposto",
-          model,
-        }),
-      });
-    }, `Fluxo ${processType.toUpperCase()} salvo.`);
+      const updated = await apiRequest<ContentItem>(
+        `/lpns/versions/${version.id}/content/${item.id}`,
+        token,
+        organizationId,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            kind: item.kind,
+            code: item.code,
+            title,
+            payload: {
+              ...item.payload,
+              description,
+              locked,
+              human_reviewed: true,
+              requires_human_validation: false,
+            },
+            sort_order: item.sort_order,
+          }),
+        },
+      );
+      setContent((current) => current.map((candidate) =>
+        candidate.id === item.id ? updated : candidate,
+      ));
+    }, "Bloco salvo e marcado como revisado.");
+  }
+
+  async function deleteContentBlock(item: ContentItem) {
+    if (!version) return;
+    await execute(async () => {
+      await apiRequest(
+        `/lpns/versions/${version.id}/content/${item.id}`,
+        token,
+        organizationId,
+        { method: "DELETE" },
+      );
+      setContent((current) => current.filter((candidate) => candidate.id !== item.id));
+    }, "Bloco removido do documento.");
+  }
+
+  async function reorderContentBlocks(items: ContentItem[]) {
+    if (!version) return;
+    await execute(async () => {
+      const updated = await Promise.all(items.map((item, index) =>
+        apiRequest<ContentItem>(
+          `/lpns/versions/${version.id}/content/${item.id}`,
+          token,
+          organizationId,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              kind: item.kind,
+              code: item.code,
+              title: item.title,
+              payload: { ...item.payload, editor_order: index + 1 },
+              sort_order: index + 1,
+            }),
+          },
+        ),
+      ));
+      setContent(sortContentItems(updated));
+    }, "Ordem dos blocos atualizada.");
   }
 
   async function validate() {
@@ -331,44 +405,102 @@ export function LpnWorkspace() {
     }, "Decisão de aprovação registrada.");
   }
 
-  async function requestAiSuggestion() {
-    if (!version || !aiInput.trim()) return;
+  async function generateAiDraft(brief: LpnBrief) {
+    if (!version) return;
     await execute(async () => {
       const result = await apiRequest<{
         analysis: string;
         suggestion_ids: string[];
         questions: Array<{ question: string }>;
-      }>(`/lpns/versions/${version.id}/ai/preview`, token, organizationId, {
+      }>(`/lpns/versions/${version.id}/ai/compose`, token, organizationId, {
         method: "POST",
-        body: JSON.stringify({ use_case: activeKind, input_text: aiInput }),
+        body: JSON.stringify(brief),
       });
-      setAiAnalysis(
-        result.questions.length
-          ? `${result.analysis} ${result.questions.map((item) => item.question).join(" ")}`
-          : result.analysis,
-      );
-      setAiSuggestionId(result.suggestion_ids[0] || "");
-    }, "Análise da IA concluída; revise antes de aplicar.");
-  }
-
-  async function acceptAiSuggestion() {
-    if (!aiSuggestionId || !version) return;
-    await execute(async () => {
-      await apiRequest(
-        `/lpns/ai/suggestions/${aiSuggestionId}/decision`,
-        token,
-        organizationId,
-        { method: "POST", body: JSON.stringify({ decision: "accepted" }) },
-      );
+      if (!result.suggestion_ids.length) {
+        throw new Error(result.questions.map((item) => item.question).join(" ") || result.analysis);
+      }
+      await Promise.all(result.suggestion_ids.map((suggestionId) =>
+        apiRequest(
+          `/lpns/ai/suggestions/${suggestionId}/decision`,
+          token,
+          organizationId,
+          { method: "POST", body: JSON.stringify({ decision: "accepted" }) },
+        ),
+      ));
       const updated = await apiRequest<ContentItem[]>(
         `/lpns/versions/${version.id}/content`,
         token,
         organizationId,
       );
-      setContent(updated);
-      setAiSuggestionId("");
-      setAiInput("");
-    }, "Sugestão revisada e incorporada à versão.");
+      const ordered = sortContentItems(updated);
+      setContent(ordered);
+      setAiAnalysis(result.analysis);
+      const processSteps = [...ordered]
+        .reverse()
+        .find((item) => item.kind === "requirement" && Array.isArray(item.payload.process_steps))
+        ?.payload.process_steps;
+      if (Array.isArray(processSteps)) {
+        const steps = processSteps.filter((step): step is string => typeof step === "string");
+        if (steps.length >= 2) await persistDiagram(steps);
+      }
+    }, "Rascunho completo criado. Revise e reorganize os blocos.");
+  }
+
+  async function persistDiagram(steps: string[]) {
+    if (!version) return;
+    const nodes = steps.map((name, index) => ({
+      id: `step-${index + 1}`,
+      type: index === 0 ? "start" : index === steps.length - 1 ? "end" : "activity",
+      lane_id: "process",
+      name,
+    }));
+    const edges = nodes.slice(0, -1).map((node, index) => ({
+      id: `edge-${index + 1}`,
+      source: node.id,
+      target: nodes[index + 1].id,
+    }));
+    await apiRequest(`/lpns/versions/${version.id}/diagrams`, token, organizationId, {
+      method: "PUT",
+      body: JSON.stringify({
+        process_type: "to_be",
+        name: "Processo proposto",
+        model: {
+          lanes: [{ id: "process", name: "Processo proposto" }],
+          nodes,
+          edges,
+          layout: {},
+          metadata: { editor: "visual-blocks-v1" },
+        },
+      }),
+    });
+  }
+
+  async function saveFlow(steps: string[]) {
+    await execute(async () => {
+      await persistDiagram(steps);
+      const requirement = [...content].reverse().find((item) => item.kind === "requirement");
+      if (!version || !requirement) return;
+      const updated = await apiRequest<ContentItem>(
+        `/lpns/versions/${version.id}/content/${requirement.id}`,
+        token,
+        organizationId,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            kind: requirement.kind,
+            code: requirement.code,
+            title: requirement.title,
+            payload: {
+              ...requirement.payload,
+              process_steps: steps,
+              human_reviewed: true,
+            },
+            sort_order: requirement.sort_order,
+          }),
+        },
+      );
+      setContent((current) => current.map((item) => item.id === updated.id ? updated : item));
+    }, "Fluxo proposto atualizado.");
   }
 
   async function generateDocuments() {
@@ -528,66 +660,18 @@ export function LpnWorkspace() {
                 <div><span>Product Owner</span><strong>{selectedDemand?.product_owner_name || "Não informado"}</strong></div>
                 <div><span>Analista de Negócios</span><strong>{user?.full_name}</strong></div>
               </section>
-              <nav className={styles.sectionTabs} aria-label="Seções da LPN">
-                {CONTENT_SECTIONS.map((section) => (
-                  <button
-                    className={activeKind === section.kind ? styles.activeTab : ""}
-                    key={section.kind}
-                    onClick={() => setActiveKind(section.kind)}
-                    type="button"
-                  >
-                    {section.label}
-                    <span>{content.filter((item) => item.kind === section.kind).length}</span>
-                  </button>
-                ))}
-              </nav>
-              <div className={styles.editorGrid}>
-                <section className={styles.panel}>
-                  <h2>{CONTENT_SECTIONS.find((item) => item.kind === activeKind)?.label}</h2>
-                  <form onSubmit={createContent} className={styles.stackForm}>
-                    <input name="title" required placeholder="Título do trecho" />
-                    <textarea
-                      name="description"
-                      required
-                      rows={9}
-                      placeholder="Descreva esta parte da LPN em linguagem funcional, como ela aparecerá no documento."
-                    />
-                    <button disabled={busy || version.status === "approved"} type="submit">Adicionar ao documento</button>
-                  </form>
-                  <div className={styles.itemList}>
-                    {visibleContent.map((item) => (
-                      <article key={item.id}>
-                        <span>{item.code}</span><strong>{item.title}</strong>
-                        <p>{String(item.payload.description || item.payload.problem || item.payload.responsibility || "Conteúdo estruturado")}</p>
-                      </article>
-                    ))}
-                    {!visibleContent.length ? <p>Nenhum item nesta seção.</p> : null}
-                  </div>
-                </section>
-                <ProcessPanel disabled={busy || version.status === "approved"} onSave={saveDiagram} />
-              </div>
-              <section className={styles.aiPanel}>
-                <div>
-                  <span>IA rastreável</span>
-                  <h2>Apoio para {CONTENT_SECTIONS.find((item) => item.kind === activeKind)?.label}</h2>
-                  <p>A sugestão só entra na LPN depois da sua decisão.</p>
-                </div>
-                <textarea
-                  onChange={(event) => setAiInput(event.target.value)}
-                  placeholder="Cole o relato, ata ou informação confirmada..."
-                  rows={4}
-                  value={aiInput}
-                />
-                <div className={styles.aiActions}>
-                  <button disabled={busy || aiInput.trim().length < 20} onClick={requestAiSuggestion} type="button">
-                    Analisar conteúdo
-                  </button>
-                  <button disabled={busy || !aiSuggestionId} onClick={acceptAiSuggestion} type="button">
-                    Aceitar sugestão
-                  </button>
-                </div>
-                {aiAnalysis ? <p className={styles.aiAnalysis}>{aiAnalysis}</p> : null}
-              </section>
+              <LpnBlockEditor
+                busy={busy}
+                editable={version.status !== "approved"}
+                items={content}
+                onAdd={createContent}
+                onDelete={deleteContentBlock}
+                onGenerate={generateAiDraft}
+                onReorder={reorderContentBlocks}
+                onSave={saveContentBlock}
+                onSaveFlow={saveFlow}
+              />
+              {aiAnalysis ? <p className={styles.aiAnalysis}>{aiAnalysis}</p> : null}
               <section className={styles.supportGrid}>
                 <form className={styles.panel} onSubmit={uploadEvidence}>
                   <h2>Imagens e evidências do processo</h2>
@@ -640,67 +724,5 @@ export function LpnWorkspace() {
         </section>
       </section>
     </main>
-  );
-}
-
-function ProcessPanel({
-  disabled,
-  onSave,
-}: {
-  disabled: boolean;
-  onSave: (type: "as_is" | "to_be", model: string) => Promise<void>;
-}) {
-  const [steps, setSteps] = useState("");
-  const parsedSteps = useMemo(
-    () => steps.split("\n").map((step) => step.trim()).filter(Boolean),
-    [steps],
-  );
-
-  function saveProcess() {
-    const nodes = parsedSteps.map((name, index) => ({
-      id: `step-${index + 1}`,
-      type: index === 0 ? "start" : index === parsedSteps.length - 1 ? "end" : "activity",
-      lane_id: "process",
-      name,
-    }));
-    const edges = nodes.slice(0, -1).map((node, index) => ({
-      id: `edge-${index + 1}`,
-      source: node.id,
-      target: nodes[index + 1].id,
-    }));
-    const model = JSON.stringify({
-      lanes: [{ id: "process", name: "Processo proposto" }],
-      nodes,
-      edges,
-      layout: {},
-      metadata: { editor: "simple-steps-v1" },
-    });
-    void onSave("to_be", model);
-  }
-
-  return (
-    <section className={styles.panel}>
-      <h2>Diagrama do processo</h2>
-      <p>Informe uma etapa por linha, na ordem em que ela acontece.</p>
-      <textarea
-        aria-label="Etapas do processo proposto"
-        onChange={(event) => setSteps(event.target.value)}
-        placeholder={"VPE020 – Consultar ordem de carregamento\nLayout VPE081\nIncluir novas informações\nImprimir relatório"}
-        rows={10}
-        value={steps}
-      />
-      <div className={styles.simpleFlow} aria-label="Pré-visualização do processo">
-        {parsedSteps.map((step, index) => (
-          <div key={`${step}-${index}`}>
-            <span>{step}</span>
-            {index < parsedSteps.length - 1 ? <b aria-hidden="true">→</b> : null}
-          </div>
-        ))}
-        {!parsedSteps.length ? <p>As etapas aparecerão aqui como no diagrama da LPN.</p> : null}
-      </div>
-      <button disabled={disabled || parsedSteps.length < 2} onClick={saveProcess} type="button">
-        Salvar diagrama proposto
-      </button>
-    </section>
   );
 }
